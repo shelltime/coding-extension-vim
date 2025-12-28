@@ -1,0 +1,6 @@
+socketPath: /tmp/shelltime-test.sock
+codeTracking:
+  enabled: true
+heartbeatInterval: 60000
+debounceInterval: 15000
+debug: false
