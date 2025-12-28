@@ -1,5 +1,5 @@
 -- shelltime.nvim - Automatic coding activity tracking for Neovim
--- https://github.com/malamtime/shelltime.nvim
+-- https://github.com/shelltime/coding-extension-vim
 
 local config = require('shelltime.config')
 local heartbeat = require('shelltime.heartbeat')

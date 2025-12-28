@@ -23,7 +23,7 @@ A Neovim plugin for automatic coding activity tracking. Works with the ShellTime
 
 ```lua
 {
-  "malamtime/shelltime.nvim",
+  "shelltime/coding-extension-vim",
   event = "VeryLazy",
   opts = {},
 }
@@ -33,7 +33,7 @@ A Neovim plugin for automatic coding activity tracking. Works with the ShellTime
 
 ```lua
 use {
-  "malamtime/shelltime.nvim",
+  "shelltime/coding-extension-vim",
   config = function()
     require("shelltime").setup()
   end
@@ -43,7 +43,7 @@ use {
 ### vim-plug
 
 ```vim
-Plug 'malamtime/shelltime.nvim'
+Plug 'shelltime/coding-extension-vim'
 ```
 
 Then add to your `init.lua`:
