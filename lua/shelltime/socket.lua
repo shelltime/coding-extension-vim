@@ -61,8 +61,8 @@ function M.send(message, callback)
       return
     end
 
-    -- Send message
-    local json_msg = vim.fn.json_encode(message)
+    -- Send message (use vim.json.encode for fast event context)
+    local json_msg = vim.json.encode(message)
     pipe:write(json_msg, function(write_err)
       if write_err then
         vim.schedule(function()
@@ -91,7 +91,7 @@ function M.send(message, callback)
             vim.schedule(function()
               cleanup()
               if response_data ~= '' then
-                local ok, parsed = pcall(vim.fn.json_decode, response_data)
+                local ok, parsed = pcall(vim.json.decode, response_data)
                 if ok then
                   callback(parsed, nil)
                 else
