@@ -41,6 +41,9 @@ jobs:
 
       - name: Run tests with coverage
         if: matrix.neovim == 'v0.11.0'
+        env:
+          LUA_PATH: '/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua;;'
+          LUA_CPATH: '/usr/local/lib/lua/5.1/?.so;;'
         run: ./scripts/test-coverage.sh
 
       - name: Upload coverage to Codecov
