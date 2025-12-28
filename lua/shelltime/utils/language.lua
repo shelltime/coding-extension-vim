@@ -57,6 +57,14 @@ function M.get_language(filetype, file_path)
   end
 
   -- Fallback: detect from file extension
+  local filename = file_path:match('[/\\]?([^/\\]+)$') or ''
+
+  -- Check for hidden files without extension (e.g., .hidden, .gitignore)
+  -- These start with a dot and have no other dots
+  if filename:match('^%.[^%.]+$') then
+    return ''
+  end
+
   local ext = file_path:match('%.([^%.]+)$')
   if ext then
     ext = ext:lower()
@@ -64,7 +72,6 @@ function M.get_language(filetype, file_path)
   end
 
   -- Special case: Dockerfile, Makefile, etc.
-  local filename = file_path:match('[/\\]?([^/\\]+)$') or ''
   local basename = filename:lower()
   if basename == 'dockerfile' then
     return 'dockerfile'
