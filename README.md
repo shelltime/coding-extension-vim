@@ -1,5 +1,8 @@
 # shelltime.nvim
 
+[![CI](https://github.com/shelltime/coding-extension-vim/actions/workflows/ci.yml/badge.svg)](https://github.com/shelltime/coding-extension-vim/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/shelltime/coding-extension-vim/branch/main/graph/badge.svg)](https://codecov.io/gh/shelltime/coding-extension-vim)
+
 A Neovim plugin for automatic coding activity tracking. Works with the ShellTime daemon to monitor your development time across projects.
 
 ## Features
@@ -90,15 +93,6 @@ require("shelltime").setup({
 | `codeTracking.enabled` | boolean | `true` | Enable/disable tracking |
 | `debug` | boolean | `false` | Enable debug logging |
 
-Example `~/.shelltime/config.yaml`:
-
-```yaml
-socketPath: /tmp/shelltime.sock
-codeTracking:
-  enabled: true
-debug: false
-```
-
 ## Commands
 
 | Command | Description |
@@ -107,35 +101,6 @@ debug: false
 | `:ShellTimeFlush` | Manually flush pending heartbeats to daemon |
 | `:ShellTimeEnable` | Enable tracking |
 | `:ShellTimeDisable` | Disable tracking |
-
-## Usage Examples
-
-### Check Connection Status
-
-```vim
-:ShellTimeStatus
-```
-
-This shows:
-- Whether the daemon is connected
-- Daemon version and uptime
-- Number of pending heartbeats
-
-### Temporarily Disable Tracking
-
-```vim
-:ShellTimeDisable
-" ... do some work you don't want tracked ...
-:ShellTimeEnable
-```
-
-### Force Send Pending Data
-
-```vim
-:ShellTimeFlush
-```
-
-Useful before closing Neovim to ensure all data is sent.
 
 ## How It Works
 
@@ -195,4 +160,4 @@ Run `:ShellTimeStatus` to check:
 
 ## License
 
-GPL-3.0
+[GPL-3.0](LICENSE)
