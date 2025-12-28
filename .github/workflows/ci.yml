@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        neovim: ['v0.11.0', 'nightly']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+
+      - name: Install LuaRocks
+        run: sudo apt-get install -y luarocks
+
+      - name: Install luacov
+        run: |
+          sudo luarocks install luacov
+          sudo luarocks install luacov-reporter-lcov
+
+      - name: Clone plenary.nvim
+        run: |
+          mkdir -p ~/.local/share/nvim/site/pack/vendor/start
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim \
+            ~/.local/share/nvim/site/pack/vendor/start/plenary.nvim
+
+      - name: Run tests
+        run: ./scripts/test.sh
+
+      - name: Run tests with coverage
+        if: matrix.neovim == 'v0.11.0'
+        run: ./scripts/test-coverage.sh
+
+      - name: Upload coverage to Codecov
+        if: matrix.neovim == 'v0.11.0'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./lcov.info
+          fail_ci_if_error: false
