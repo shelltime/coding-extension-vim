@@ -20,6 +20,7 @@ function M.reset_all()
     'shelltime.utils.system',
     'shelltime.utils.git',
     'shelltime.utils.yaml',
+    'shelltime.utils.language',
   }
   for _, name in ipairs(modules) do
     package.loaded[name] = nil
