@@ -1,0 +1,9 @@
+return {
+  include = {
+    "lua/shelltime/.+%.lua$",
+  },
+  exclude = {
+    "tests/",
+    "plugin/",
+  },
+}
