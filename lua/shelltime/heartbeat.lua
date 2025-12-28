@@ -3,6 +3,7 @@
 local config = require('shelltime.config')
 local system = require('shelltime.utils.system')
 local git = require('shelltime.utils.git')
+local lang = require('shelltime.utils.language')
 
 local M = {}
 
@@ -103,7 +104,7 @@ local function create_heartbeat(bufnr, is_write)
     project = system.get_project_name(project_root),
     projectRootPath = project_root,
     branch = git.get_branch(file_path),
-    language = vim.bo[bufnr].filetype or '',
+    language = lang.get_language(vim.bo[bufnr].filetype, file_path),
     lines = vim.api.nvim_buf_line_count(bufnr),
     lineNumber = cursor[1],       -- Already 1-indexed
     cursorPosition = cursor[2],   -- 0-indexed column
