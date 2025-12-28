@@ -51,7 +51,7 @@ local function load_config_file(path)
   local file_config, err = yaml.load_file(expanded)
 
   if err then
-    if M.get('debug') then
+    if defaults.debug then
       vim.notify('[shelltime] ' .. err, vim.log.levels.WARN)
     end
     return {}
