@@ -191,12 +191,12 @@ local function on_event(is_write)
   local line_number = cursor[1]
   local cursor_position = cursor[2]
 
-  -- Skip duplicate events (same file and cursor position)
-  if is_duplicate_activity(file_path, line_number, cursor_position, is_write) then
+  if not should_send_heartbeat(file_path, is_write) then
     return
   end
 
-  if not should_send_heartbeat(file_path, is_write) then
+  -- Skip duplicate events (same file and cursor position)
+  if is_duplicate_activity(file_path, line_number, cursor_position, is_write) then
     return
   end
 
