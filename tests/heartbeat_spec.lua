@@ -142,6 +142,13 @@ describe('shelltime.heartbeat', function()
         heartbeat.clear_cache()
       end)
     end)
+
+    it('should reset last activity state for duplicate detection', function()
+      -- clear_cache should reset both debounce and duplicate tracking
+      heartbeat.clear_cache()
+      -- After clearing, the next event should not be considered duplicate
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
   end)
 
   describe('module exports', function()
