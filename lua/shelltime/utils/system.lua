@@ -80,11 +80,16 @@ function M.get_project_root(file_path)
   return vim.fn.fnamemodify(file_path, ':p:h')
 end
 
---- Get project name from root path
+--- Get project name from root path (last 2 folder layers)
 ---@param project_root string Project root path
 ---@return string Project name
 function M.get_project_name(project_root)
-  return vim.fn.fnamemodify(project_root, ':t')
+  local tail = vim.fn.fnamemodify(project_root, ':t')
+  local parent = vim.fn.fnamemodify(project_root, ':h:t')
+  if parent and parent ~= '' and parent ~= '/' then
+    return parent .. '/' .. tail
+  end
+  return tail
 end
 
 --- Generate UUID v4
