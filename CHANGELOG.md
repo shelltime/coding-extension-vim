@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.3](https://github.com/shelltime/coding-extension-vim/compare/v0.0.2...v0.0.3) (2026-01-03)
+
+
+### Features
+
+* **heartbeat:** skip duplicate activity events ([57a969e](https://github.com/shelltime/coding-extension-vim/commit/57a969e6a7388ef08348868283d2dc7bd164acf0))
+
+
+### Bug Fixes
+
+* **heartbeat:** correct order of debounce and duplicate checks ([fb4bc6b](https://github.com/shelltime/coding-extension-vim/commit/fb4bc6bba5adfcc2dc0382fd9a3c9597aa591d13))
+* **heartbeat:** update last_activity before debounce check ([4ee3787](https://github.com/shelltime/coding-extension-vim/commit/4ee378798897714d7cf59d24a28592ba028c289e))
+
 ## [0.0.2](https://github.com/shelltime/coding-extension-vim/compare/v0.0.1...v0.0.2) (2026-01-02)
 
 

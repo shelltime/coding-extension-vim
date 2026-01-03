@@ -8,7 +8,7 @@ local lang = require('shelltime.utils.language')
 local M = {}
 
 -- Plugin version
-local PLUGIN_VERSION = '0.0.2' -- x-release-please-version
+local PLUGIN_VERSION = '0.0.3' -- x-release-please-version
 
 -- Pending heartbeats queue
 local pending_heartbeats = {}
