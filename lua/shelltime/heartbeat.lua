@@ -191,17 +191,18 @@ local function on_event(is_write)
   local line_number = cursor[1]
   local cursor_position = cursor[2]
 
-  if not should_send_heartbeat(file_path, is_write) then
-    return
-  end
-
   -- Skip duplicate events (same file and cursor position)
   if is_duplicate_activity(file_path, line_number, cursor_position, is_write) then
     return
   end
 
-  -- Update last activity state
+  -- Update last activity state immediately after duplicate check
+  -- This ensures we track the latest position even if debounce blocks sending
   update_last_activity(file_path, line_number, cursor_position)
+
+  if not should_send_heartbeat(file_path, is_write) then
+    return
+  end
 
   local heartbeat = create_heartbeat(bufnr, is_write)
   if heartbeat then
