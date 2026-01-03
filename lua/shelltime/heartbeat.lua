@@ -16,6 +16,13 @@ local pending_heartbeats = {}
 -- Last heartbeat time per file (for debouncing)
 local last_heartbeat_time = {}
 
+-- Last activity state (for duplicate detection)
+local last_activity = {
+  file_path = nil,
+  line_number = nil,
+  cursor_position = nil,
+}
+
 -- Autocmd group
 local augroup = nil
 
@@ -82,6 +89,38 @@ local function should_send_heartbeat(file_path, is_write)
   return false
 end
 
+--- Check if activity is a duplicate (same file and cursor position)
+---@param file_path string File path
+---@param line_number number Line number (1-indexed)
+---@param cursor_position number Cursor column (0-indexed)
+---@param is_write boolean Whether this is a write event
+---@return boolean True if duplicate (should skip)
+local function is_duplicate_activity(file_path, line_number, cursor_position, is_write)
+  -- Write events are never considered duplicates
+  if is_write then
+    return false
+  end
+
+  -- Check if same as last activity
+  if last_activity.file_path == file_path
+    and last_activity.line_number == line_number
+    and last_activity.cursor_position == cursor_position then
+    return true
+  end
+
+  return false
+end
+
+--- Update last activity state
+---@param file_path string File path
+---@param line_number number Line number (1-indexed)
+---@param cursor_position number Cursor column (0-indexed)
+local function update_last_activity(file_path, line_number, cursor_position)
+  last_activity.file_path = file_path
+  last_activity.line_number = line_number
+  last_activity.cursor_position = cursor_position
+end
+
 --- Create heartbeat data for current buffer
 ---@param bufnr number Buffer number
 ---@param is_write boolean Whether this is a write event
@@ -146,6 +185,20 @@ local function on_event(is_write)
   end
 
   local file_path = vim.api.nvim_buf_get_name(bufnr)
+
+  -- Get cursor position for duplicate detection
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_number = cursor[1]
+  local cursor_position = cursor[2]
+
+  -- Skip duplicate events (same file and cursor position)
+  if is_duplicate_activity(file_path, line_number, cursor_position, is_write) then
+    return
+  end
+
+  -- Update last activity state immediately after duplicate check
+  -- This ensures we track the latest position even if debounce blocks sending
+  update_last_activity(file_path, line_number, cursor_position)
 
   if not should_send_heartbeat(file_path, is_write) then
     return
@@ -223,6 +276,11 @@ end
 --- Clear debounce cache
 function M.clear_cache()
   last_heartbeat_time = {}
+  last_activity = {
+    file_path = nil,
+    line_number = nil,
+    cursor_position = nil,
+  }
 end
 
 return M
