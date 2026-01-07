@@ -11,6 +11,8 @@ local defaults = {
   heartbeat_interval = 120000, -- 2 minutes in ms
   debounce_interval = 30000,   -- 30 seconds in ms
   debug = false,
+  api_endpoint = nil,          -- API endpoint for version check
+  web_endpoint = nil,          -- Web endpoint for update command
 }
 
 -- Default config file path
@@ -87,6 +89,15 @@ local function merge_config(file_config)
 
   if file_config.debounceInterval then
     config.debounce_interval = file_config.debounceInterval
+  end
+
+  -- API and web endpoints for version check
+  if file_config.apiEndpoint then
+    config.api_endpoint = file_config.apiEndpoint
+  end
+
+  if file_config.webEndpoint then
+    config.web_endpoint = file_config.webEndpoint
   end
 
   return config

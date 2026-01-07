@@ -3,6 +3,7 @@
 local config = require('shelltime.config')
 local socket = require('shelltime.socket')
 local heartbeat = require('shelltime.heartbeat')
+local version = require('shelltime.version')
 
 local M = {}
 
@@ -63,9 +64,18 @@ function M.start()
     end)
   end)
 
-  -- Check initial connection status
+  -- Check initial connection status and CLI version
   vim.schedule(function()
     is_connected = socket.is_connected_sync()
+
+    -- Check CLI version in background (non-blocking)
+    if is_connected then
+      socket.get_status(function(status, err)
+        if status and status.version then
+          version.check_version(status.version)
+        end
+      end)
+    end
   end)
 end
 
