@@ -22,6 +22,7 @@ local default_config_path = '~/.shelltime/config.yaml'
 local cached_config = nil
 local cached_mtime = nil
 local config_path = nil
+local test_mode = false
 
 --- Expand tilde in path
 ---@param path string Path with possible tilde
@@ -112,11 +113,17 @@ function M.setup(opts)
   -- Force reload
   cached_config = nil
   cached_mtime = nil
+  test_mode = false
 end
 
 --- Get merged configuration
 ---@return table Configuration
 function M.get_config()
+  -- In test mode, always return cached config
+  if test_mode and cached_config then
+    return cached_config
+  end
+
   local path = expand_path(config_path or default_config_path)
   local mtime = get_mtime(path)
 
@@ -151,6 +158,13 @@ end
 ---@return string Config path
 function M.get_config_path()
   return config_path or default_config_path
+end
+
+--- Set config values directly (for testing only)
+---@param config_values table Config values to set
+function M._set_for_testing(config_values)
+  cached_config = vim.tbl_deep_extend('force', {}, defaults, config_values)
+  test_mode = true
 end
 
 return M

@@ -16,6 +16,7 @@ function M.reset_all()
     'shelltime.heartbeat',
     'shelltime.sender',
     'shelltime.socket',
+    'shelltime.version',
     'shelltime.utils',
     'shelltime.utils.system',
     'shelltime.utils.git',
