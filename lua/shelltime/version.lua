@@ -24,23 +24,15 @@ local function url_encode(str)
   return str
 end
 
---- Parse JSON response (minimal parser for version check response)
+--- Parse JSON response using Neovim's built-in JSON decoder
 ---@param json_str string JSON string
 ---@return table|nil Parsed table or nil on error
 local function parse_json(json_str)
-  -- Simple JSON parser for { "isLatest": bool, "latestVersion": "...", "version": "..." }
-  local is_latest = json_str:match('"isLatest"%s*:%s*(true)')
-  local latest_version = json_str:match('"latestVersion"%s*:%s*"([^"]+)"')
-  local version = json_str:match('"version"%s*:%s*"([^"]+)"')
-
-  if latest_version and version then
-    return {
-      isLatest = is_latest ~= nil,
-      latestVersion = latest_version,
-      version = version,
-    }
+  local ok, result = pcall(vim.json.decode, json_str)
+  if not ok or type(result) ~= 'table' then
+    return nil
   end
-  return nil
+  return result
 end
 
 --- Check CLI version against server
