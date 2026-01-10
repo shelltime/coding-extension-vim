@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.4](https://github.com/shelltime/coding-extension-vim/compare/v0.0.3...v0.0.4) (2026-01-08)
+
+
+### Features
+
+* **version:** add CLI version check on extension startup ([4cd3920](https://github.com/shelltime/coding-extension-vim/commit/4cd3920e7ff021424a6258fcdf06097da6ccc220))
+* **version:** add CLI version check on extension startup ([74db5fb](https://github.com/shelltime/coding-extension-vim/commit/74db5fb1277c78c4c8184c60a94c2e0ba1f04591))
+
+
+### Code Refactoring
+
+* **version:** use vim.json.decode for JSON parsing ([ed461c7](https://github.com/shelltime/coding-extension-vim/commit/ed461c794b2baaeebd14e4c189b1e2dac7aff338))
+
+
+### Tests
+
+* **version:** add comprehensive tests for version checker module ([fc67b4a](https://github.com/shelltime/coding-extension-vim/commit/fc67b4ac1b84bf788a6c3113b3788c48e20caf9e))
+
 ## [0.0.3](https://github.com/shelltime/coding-extension-vim/compare/v0.0.2...v0.0.3) (2026-01-03)
 
 
