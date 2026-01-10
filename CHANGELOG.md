@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.5](https://github.com/shelltime/coding-extension-vim/compare/v0.0.4...v0.0.5) (2026-01-10)
+
+
+### Documentation
+
+* **readme:** fix installation instructions to match source of truth ([a0d0705](https://github.com/shelltime/coding-extension-vim/commit/a0d07051bca8d279779142aa23d2ff369ff0951f))
+* **readme:** fix installation instructions to match source of truth ([3fc7f75](https://github.com/shelltime/coding-extension-vim/commit/3fc7f75c4c74b6dbae0ec9831d694a06b3cf54f3))
+
 ## [0.0.4](https://github.com/shelltime/coding-extension-vim/compare/v0.0.3...v0.0.4) (2026-01-08)
 
 
