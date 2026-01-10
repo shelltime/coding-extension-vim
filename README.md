@@ -14,10 +14,49 @@ A Neovim plugin for automatic coding activity tracking. Works with the ShellTime
 - **Event Debouncing** - Efficient heartbeat batching (30s cooldown per file)
 - **Offline Support** - Queues heartbeats when daemon unavailable
 
+## Prerequisites
+
+### 1. Install ShellTime CLI
+
+```bash
+curl -sSL https://shelltime.xyz/i | bash
+```
+
+After installation, reload your shell configuration:
+- **zsh**: `source ~/.zshrc`
+- **fish**: `source ~/.config/fish/config.fish`
+- **bash**: `source ~/.bashrc`
+
+### 2. Initialize and Authenticate
+
+```bash
+shelltime init
+```
+
+This will:
+- Open your browser to authenticate with your ShellTime account
+- Install shell hooks for your shell (zsh/fish/bash)
+- Start the ShellTime daemon
+
+### 3. Enable Code Tracking
+
+Add the following to your ShellTime config (`~/.shelltime/config.yaml`):
+
+```yaml
+codeTracking:
+  enabled: true
+```
+
+Or in TOML format (`~/.shelltime/config.toml`):
+
+```toml
+[codeTracking]
+enabled = true
+```
+
 ## Requirements
 
 - Neovim >= 0.10.0
-- ShellTime daemon running (`/tmp/shelltime.sock`)
 - Git (optional, for branch tracking)
 
 ## Installation
@@ -57,19 +96,11 @@ require("shelltime").setup()
 
 ## Quick Start
 
-1. **Install the ShellTime daemon** - Make sure the daemon is running and listening on `/tmp/shelltime.sock`
+1. **Complete the [Prerequisites](#prerequisites)** - Install CLI, authenticate, and enable code tracking
 
-2. **Create config file** at `~/.shelltime/config.yaml`:
+2. **Install the plugin** using your preferred plugin manager (see above)
 
-```yaml
-socketPath: /tmp/shelltime.sock
-codeTracking:
-  enabled: true
-```
-
-3. **Install the plugin** using your preferred plugin manager (see above)
-
-4. **Start coding** - The plugin automatically tracks your activity!
+3. **Start coding** - The plugin automatically tracks your activity!
 
 ## Configuration
 
@@ -135,6 +166,7 @@ Each heartbeat includes:
 1. Check if daemon is running:
    ```bash
    ls -la /tmp/shelltime.sock
+   # If not present, run: shelltime init
    ```
 
 2. Verify config file exists:
