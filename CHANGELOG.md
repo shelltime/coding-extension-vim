@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.5](https://github.com/shelltime/coding-extension-vim/compare/v0.0.4...v0.0.5) (2026-10-09)
+
+
+### Bug Fixes
+
+* **heartbeat:** stop losing and misattributing coding activity ([3b1672d](https://github.com/shelltime/coding-extension-vim/commit/3b1672dad446f5023a2c3d3e54c589a73807dc39))
+* **heartbeat:** stop losing coding activity ([66a28c9](https://github.com/shelltime/coding-extension-vim/commit/66a28c92998d019a19f7ef5b1b12de4517451a1d))
+* **readme:** document current heartbeat behavior, options and update check ([#18](https://github.com/shelltime/coding-extension-vim/issues/18)) ([2c8d361](https://github.com/shelltime/coding-extension-vim/commit/2c8d3615280d40964d3fe86b6a26947308ce838e))
+
+
+### Documentation
+
+* **readme:** add ShellTime logo header ([b8ad973](https://github.com/shelltime/coding-extension-vim/commit/b8ad973912f75d5de5de3047f1f629accf7aeb83))
+* **readme:** add ShellTime logo header ([590b61c](https://github.com/shelltime/coding-extension-vim/commit/590b61c394e347814c963dcfda422533432c0177))
+* **readme:** fix installation instructions to match source of truth ([a0d0705](https://github.com/shelltime/coding-extension-vim/commit/a0d07051bca8d279779142aa23d2ff369ff0951f))
+* **readme:** fix installation instructions to match source of truth ([3fc7f75](https://github.com/shelltime/coding-extension-vim/commit/3fc7f75c4c74b6dbae0ec9831d694a06b3cf54f3))
+
 ## [0.0.4](https://github.com/shelltime/coding-extension-vim/compare/v0.0.3...v0.0.4) (2026-01-08)
 
 
