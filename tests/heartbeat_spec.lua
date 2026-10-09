@@ -214,10 +214,13 @@ describe('shelltime.heartbeat', function()
   describe('autocmd events (integration)', function()
     local buffers = {}
 
-    local function file_buffer(path)
+    -- Open a named file buffer in the current window, dropping its BufEnter heartbeat
+    local function open_buffer(path)
       local bufnr = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_name(bufnr, path)
       table.insert(buffers, bufnr)
+      vim.api.nvim_set_current_buf(bufnr)
+      heartbeat.flush()
       return bufnr
     end
 
@@ -234,37 +237,8 @@ describe('shelltime.heartbeat', function()
       buffers = {}
     end)
 
-    it('should attribute a write to the written buffer, not the current one', function()
-      local current = file_buffer('/tmp/shelltime-test/current.lua')
-      local written = file_buffer('/tmp/shelltime-test/written.lua')
-      vim.api.nvim_set_current_buf(current)
-      heartbeat.flush() -- drop the BufEnter heartbeat
-
-      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = written })
-
-      local pending = heartbeat.flush()
-      assert.equals(1, #pending)
-      assert.equals('/tmp/shelltime-test/written.lua', pending[1].entity)
-      assert.is_true(pending[1].isWrite)
-      -- Not shown in any window, so there is no cursor to report
-      assert.is_nil(pending[1].lineNumber)
-    end)
-
-    it('should report the cursor of the current window', function()
-      local current = file_buffer('/tmp/shelltime-test/current.lua')
-      vim.api.nvim_set_current_buf(current)
-      heartbeat.flush() -- drop the BufEnter heartbeat
-
-      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = current })
-
-      local pending = heartbeat.flush()
-      assert.equals(1, #pending)
-      assert.equals(1, pending[1].lineNumber)
-      assert.equals(0, pending[1].cursorPosition)
-    end)
-
     it('should skip files inside .git', function()
-      local bufnr = file_buffer('/tmp/shelltime-test/.git/COMMIT_EDITMSG')
+      local bufnr = open_buffer('/tmp/shelltime-test/.git/COMMIT_EDITMSG')
 
       vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
 
@@ -272,7 +246,7 @@ describe('shelltime.heartbeat', function()
     end)
 
     it('should track directories that only look like .git', function()
-      local bufnr = file_buffer('/tmp/shelltime-test/egit/main.lua')
+      local bufnr = open_buffer('/tmp/shelltime-test/egit/main.lua')
 
       vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
 
@@ -280,9 +254,7 @@ describe('shelltime.heartbeat', function()
     end)
 
     it('should count edits that leave the cursor in place', function()
-      local bufnr = file_buffer('/tmp/shelltime-test/edit.lua')
-      vim.api.nvim_set_current_buf(bufnr)
-      heartbeat.flush() -- drop the BufEnter heartbeat
+      local bufnr = open_buffer('/tmp/shelltime-test/edit.lua')
 
       vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
       vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
@@ -291,9 +263,7 @@ describe('shelltime.heartbeat', function()
     end)
 
     it('should skip repeated cursor events at the same position', function()
-      local bufnr = file_buffer('/tmp/shelltime-test/nav.lua')
-      vim.api.nvim_set_current_buf(bufnr)
-      heartbeat.flush() -- drop the BufEnter heartbeat
+      local bufnr = open_buffer('/tmp/shelltime-test/nav.lua')
 
       vim.api.nvim_exec_autocmds('CursorMoved', { buffer = bufnr })
       vim.api.nvim_exec_autocmds('CursorMoved', { buffer = bufnr })

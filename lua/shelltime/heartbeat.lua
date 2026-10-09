@@ -124,37 +124,18 @@ local function update_last_activity(file_path, line_number, cursor_position)
   last_activity.cursor_position = cursor_position
 end
 
---- Get the cursor of a window showing the buffer
---- Events like BufWritePost (:wa) can fire for buffers other than the current one.
----@param bufnr number Buffer number
----@return number|nil line_number Line number (1-indexed)
----@return number|nil cursor_position Cursor column (0-indexed)
-local function get_cursor(bufnr)
-  local winid = 0
-  if vim.api.nvim_win_get_buf(0) ~= bufnr then
-    winid = vim.fn.bufwinid(bufnr)
-    if winid == -1 then
-      return nil, nil
-    end
-  end
-
-  local cursor = vim.api.nvim_win_get_cursor(winid)
-  return cursor[1], cursor[2]
-end
-
---- Create heartbeat data for a buffer
+--- Create heartbeat data for current buffer
 ---@param bufnr number Buffer number
 ---@param is_write boolean Whether this is a write event
----@param line_number number|nil Line number (1-indexed)
----@param cursor_position number|nil Cursor column (0-indexed)
 ---@return table|nil Heartbeat data or nil
-local function create_heartbeat(bufnr, is_write, line_number, cursor_position)
+local function create_heartbeat(bufnr, is_write)
   local file_path = vim.api.nvim_buf_get_name(bufnr)
   if file_path == '' then
     return nil
   end
 
   local project_root = system.get_project_root(file_path)
+  local cursor = vim.api.nvim_win_get_cursor(0)
 
   return {
     heartbeatId = system.uuid(),
@@ -167,8 +148,8 @@ local function create_heartbeat(bufnr, is_write, line_number, cursor_position)
     branch = git.get_branch(file_path),
     language = lang.get_language(vim.bo[bufnr].filetype, file_path),
     lines = vim.api.nvim_buf_line_count(bufnr),
-    lineNumber = line_number,
-    cursorPosition = cursor_position,
+    lineNumber = cursor[1],       -- Already 1-indexed
+    cursorPosition = cursor[2],   -- 0-indexed column
     editor = 'neovim',
     editorVersion = system.get_editor_version(),
     plugin = 'shelltime',
@@ -203,13 +184,14 @@ local function add_heartbeat(heartbeat)
 end
 
 --- Handle editor event
----@param bufnr number Buffer the event fired for
 ---@param is_write boolean Whether this is a write event
 ---@param is_navigation boolean Whether this is a navigation event (BufEnter, cursor moves)
-local function on_event(bufnr, is_write, is_navigation)
+local function on_event(is_write, is_navigation)
   if not config.is_enabled() then
     return
   end
+
+  local bufnr = vim.api.nvim_get_current_buf()
 
   if not is_valid_buffer(bufnr) then
     return
@@ -218,7 +200,9 @@ local function on_event(bufnr, is_write, is_navigation)
   local file_path = vim.api.nvim_buf_get_name(bufnr)
 
   -- Get cursor position for duplicate detection
-  local line_number, cursor_position = get_cursor(bufnr)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_number = cursor[1]
+  local cursor_position = cursor[2]
 
   -- Skip repeated navigation events (same file and cursor position).
   -- Edits always count, even when the cursor stays in place (x, dd).
@@ -234,7 +218,7 @@ local function on_event(bufnr, is_write, is_navigation)
     return
   end
 
-  local heartbeat = create_heartbeat(bufnr, is_write, line_number, cursor_position)
+  local heartbeat = create_heartbeat(bufnr, is_write)
   if heartbeat then
     add_heartbeat(heartbeat)
   end
@@ -251,32 +235,32 @@ function M.start()
   -- File opened
   vim.api.nvim_create_autocmd('BufEnter', {
     group = augroup,
-    callback = function(args)
-      on_event(args.buf, false, true)
+    callback = function()
+      on_event(false, true)
     end,
   })
 
   -- Text changed
   vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
     group = augroup,
-    callback = function(args)
-      on_event(args.buf, false, false)
+    callback = function()
+      on_event(false, false)
     end,
   })
 
-  -- File saved (args.buf is the written buffer, which for :wa is not the current one)
+  -- File saved
   vim.api.nvim_create_autocmd('BufWritePost', {
     group = augroup,
-    callback = function(args)
-      on_event(args.buf, true, false)
+    callback = function()
+      on_event(true, false)
     end,
   })
 
   -- Cursor moved
   vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     group = augroup,
-    callback = function(args)
-      on_event(args.buf, false, true)
+    callback = function()
+      on_event(false, true)
     end,
   })
 end
