@@ -13,6 +13,9 @@ local PLUGIN_VERSION = '0.0.4' -- x-release-please-version
 -- Pending heartbeats queue
 local pending_heartbeats = {}
 
+-- Upper bound for the queue while the daemon is unreachable
+local MAX_PENDING = 5000
+
 -- Last heartbeat time per file (for debouncing)
 local last_heartbeat_time = {}
 
@@ -55,7 +58,7 @@ local function is_valid_buffer(bufnr)
   end
 
   -- Skip .git directory files
-  if file_path:match('/.git/') then
+  if file_path:match('[/\\]%.git[/\\]') then
     return false
   end
 
@@ -158,10 +161,19 @@ local function create_heartbeat(bufnr, is_write)
   }
 end
 
+--- Drop the oldest heartbeats once the queue exceeds MAX_PENDING
+local function trim_queue()
+  local overflow = #pending_heartbeats - MAX_PENDING
+  if overflow > 0 then
+    pending_heartbeats = vim.list_slice(pending_heartbeats, overflow + 1)
+  end
+end
+
 --- Add heartbeat to pending queue
 ---@param heartbeat table Heartbeat data
 local function add_heartbeat(heartbeat)
   table.insert(pending_heartbeats, heartbeat)
+  trim_queue()
 
   if config.get('debug') then
     vim.notify(
@@ -173,7 +185,8 @@ end
 
 --- Handle editor event
 ---@param is_write boolean Whether this is a write event
-local function on_event(is_write)
+---@param is_navigation boolean Whether this is a navigation event (BufEnter, cursor moves)
+local function on_event(is_write, is_navigation)
   if not config.is_enabled() then
     return
   end
@@ -191,8 +204,9 @@ local function on_event(is_write)
   local line_number = cursor[1]
   local cursor_position = cursor[2]
 
-  -- Skip duplicate events (same file and cursor position)
-  if is_duplicate_activity(file_path, line_number, cursor_position, is_write) then
+  -- Skip repeated navigation events (same file and cursor position).
+  -- Edits always count, even when the cursor stays in place (x, dd).
+  if is_navigation and is_duplicate_activity(file_path, line_number, cursor_position, is_write) then
     return
   end
 
@@ -222,7 +236,7 @@ function M.start()
   vim.api.nvim_create_autocmd('BufEnter', {
     group = augroup,
     callback = function()
-      on_event(false)
+      on_event(false, true)
     end,
   })
 
@@ -230,7 +244,7 @@ function M.start()
   vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
     group = augroup,
     callback = function()
-      on_event(false)
+      on_event(false, false)
     end,
   })
 
@@ -238,7 +252,7 @@ function M.start()
   vim.api.nvim_create_autocmd('BufWritePost', {
     group = augroup,
     callback = function()
-      on_event(true)
+      on_event(true, false)
     end,
   })
 
@@ -246,7 +260,7 @@ function M.start()
   vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     group = augroup,
     callback = function()
-      on_event(false)
+      on_event(false, true)
     end,
   })
 end
@@ -265,6 +279,16 @@ function M.flush()
   local heartbeats = pending_heartbeats
   pending_heartbeats = {}
   return heartbeats
+end
+
+--- Put heartbeats that could not be delivered back at the front of the queue
+---@param heartbeats table[] Heartbeats to retry
+function M.requeue(heartbeats)
+  if #heartbeats == 0 then
+    return
+  end
+  pending_heartbeats = vim.list_extend(vim.list_extend({}, heartbeats), pending_heartbeats)
+  trim_queue()
 end
 
 --- Get pending heartbeat count

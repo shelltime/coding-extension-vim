@@ -180,6 +180,98 @@ describe('shelltime.heartbeat', function()
     end)
   end)
 
+  describe('requeue', function()
+    it('should put heartbeats back ahead of newer ones', function()
+      heartbeat.requeue({ { entity = 'newer' } })
+      heartbeat.requeue({ { entity = 'older' } })
+
+      local pending = heartbeat.flush()
+      assert.equals(2, #pending)
+      assert.equals('older', pending[1].entity)
+      assert.equals('newer', pending[2].entity)
+    end)
+
+    it('should ignore an empty list', function()
+      heartbeat.requeue({})
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
+
+    it('should cap the queue and drop the oldest heartbeats', function()
+      local list = {}
+      for i = 1, 5001 do
+        list[i] = { entity = 'file-' .. i }
+      end
+
+      heartbeat.requeue(list)
+
+      local pending = heartbeat.flush()
+      assert.equals(5000, #pending)
+      assert.equals('file-2', pending[1].entity)
+      assert.equals('file-5001', pending[5000].entity)
+    end)
+  end)
+
+  describe('autocmd events (integration)', function()
+    local buffers = {}
+
+    -- Open a named file buffer in the current window, dropping its BufEnter heartbeat
+    local function open_buffer(path)
+      local bufnr = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_name(bufnr, path)
+      table.insert(buffers, bufnr)
+      vim.api.nvim_set_current_buf(bufnr)
+      heartbeat.flush()
+      return bufnr
+    end
+
+    before_each(function()
+      config._set_for_testing({ debounce_interval = 0 })
+      heartbeat.start()
+    end)
+
+    after_each(function()
+      heartbeat.stop()
+      for _, bufnr in ipairs(buffers) do
+        pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+      end
+      buffers = {}
+    end)
+
+    it('should skip files inside .git', function()
+      local bufnr = open_buffer('/tmp/shelltime-test/.git/COMMIT_EDITMSG')
+
+      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
+
+    it('should track directories that only look like .git', function()
+      local bufnr = open_buffer('/tmp/shelltime-test/egit/main.lua')
+
+      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+
+      assert.equals(1, heartbeat.get_pending_count())
+    end)
+
+    it('should count edits that leave the cursor in place', function()
+      local bufnr = open_buffer('/tmp/shelltime-test/edit.lua')
+
+      vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
+      vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
+
+      assert.equals(2, heartbeat.get_pending_count())
+    end)
+
+    it('should skip repeated cursor events at the same position', function()
+      local bufnr = open_buffer('/tmp/shelltime-test/nav.lua')
+
+      vim.api.nvim_exec_autocmds('CursorMoved', { buffer = bufnr })
+      vim.api.nvim_exec_autocmds('CursorMoved', { buffer = bufnr })
+
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
+  end)
+
   describe('buffer validation (integration)', function()
     -- These tests verify buffer validation through behavior
 
