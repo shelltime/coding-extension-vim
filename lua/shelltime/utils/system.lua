@@ -92,15 +92,41 @@ function M.get_project_name(project_root)
   return tail
 end
 
+-- Whether the math.random fallback has been seeded
+local seeded = false
+
+--- Get 16 random bytes, from the OS when possible
+---@return number[] Byte values (0-255)
+local function random_bytes()
+  local uv = vim.uv or vim.loop
+  local ok, bytes = pcall(uv.random, 16)
+  if ok and type(bytes) == 'string' and #bytes == 16 then
+    return { bytes:byte(1, 16) }
+  end
+
+  -- Seed once: reseeding on every call from the clock repeats sequences
+  -- across calls and Neovim instances, and heartbeat ids must be unique.
+  if not seeded then
+    math.randomseed(uv.hrtime() + uv.os_getpid())
+    seeded = true
+  end
+  local result = {}
+  for i = 1, 16 do
+    result[i] = math.random(0, 255)
+  end
+  return result
+end
+
 --- Generate UUID v4
 ---@return string UUID string
 function M.uuid()
-  math.randomseed(os.time() + os.clock() * 1000000)
-  local template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
-  return string.gsub(template, '[xy]', function(c)
-    local v = (c == 'x') and math.random(0, 0xf) or math.random(8, 0xb)
-    return string.format('%x', v)
-  end)
+  local b = random_bytes()
+  b[7] = (b[7] % 16) + 0x40 -- version 4
+  b[9] = (b[9] % 64) + 0x80 -- RFC 4122 variant
+  return string.format(
+    '%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x',
+    unpack(b)
+  )
 end
 
 --- Get current Unix timestamp in seconds

@@ -56,6 +56,24 @@ describe('shelltime.utils.system', function()
       assert.equals('-', id:sub(19, 19))
       assert.equals('-', id:sub(24, 24))
     end)
+
+    it('should fall back to math.random when OS randomness is unavailable', function()
+      local uv = vim.uv or vim.loop
+      local random_stub = require('luassert.stub')(uv, 'random')
+      random_stub.invokes(function()
+        error('not supported')
+      end)
+
+      local ids = {}
+      for _ = 1, 100 do
+        local id = system.uuid()
+        assert.matches('^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$', id)
+        assert.is_nil(ids[id], 'UUID collision detected')
+        ids[id] = true
+      end
+
+      random_stub:revert()
+    end)
   end)
 
   describe('get_timestamp', function()

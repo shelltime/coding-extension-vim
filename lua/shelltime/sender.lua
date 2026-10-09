@@ -10,6 +10,12 @@ local M = {}
 -- Flush timer
 local flush_timer = nil
 
+-- Autocmd group for the exit flush
+local augroup = nil
+
+-- How long Neovim may wait on exit for pending heartbeats to be sent
+local EXIT_FLUSH_TIMEOUT = 1500
+
 -- Connection status
 local is_connected = false
 
@@ -27,6 +33,11 @@ local function send_heartbeats(callback)
 
   socket.send_heartbeats(heartbeats, function(success, err)
     is_connected = success
+
+    if not success then
+      -- Keep them for the next flush instead of dropping them
+      heartbeat.requeue(heartbeats)
+    end
 
     if config.get('debug') then
       if success then
@@ -64,6 +75,16 @@ function M.start()
     end)
   end)
 
+  -- Sessions are often shorter than the flush interval, so send what is
+  -- pending before Neovim exits.
+  augroup = vim.api.nvim_create_augroup('ShellTimeSender', { clear = true })
+  vim.api.nvim_create_autocmd('VimLeavePre', {
+    group = augroup,
+    callback = function()
+      M.flush_sync(EXIT_FLUSH_TIMEOUT)
+    end,
+  })
+
   -- Check initial connection status and CLI version
   vim.schedule(function()
     is_connected = socket.is_connected_sync()
@@ -86,12 +107,30 @@ function M.stop()
     flush_timer:close()
     flush_timer = nil
   end
+
+  if augroup then
+    vim.api.nvim_del_augroup_by_id(augroup)
+    augroup = nil
+  end
 end
 
 --- Force flush pending heartbeats
 ---@param callback function|nil Optional callback(success, error)
 function M.flush(callback)
   send_heartbeats(callback)
+end
+
+--- Flush pending heartbeats and block until sent or timed out
+---@param timeout number Maximum wait in milliseconds
+---@return boolean True if the send finished within the timeout
+function M.flush_sync(timeout)
+  local done = false
+  send_heartbeats(function()
+    done = true
+  end)
+  return vim.wait(timeout, function()
+    return done
+  end, 10)
 end
 
 --- Get connection status

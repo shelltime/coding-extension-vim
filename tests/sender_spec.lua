@@ -120,6 +120,93 @@ describe('shelltime.sender', function()
         sender.flush()
       end)
     end)
+
+    it('should re-queue heartbeats when the send fails', function()
+      heartbeat.requeue({ { entity = 'a' }, { entity = 'b' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        callback(false, 'Connection failed: ENOENT')
+      end)
+
+      local called = false
+      sender.flush(function(success)
+        called = true
+        assert.is_false(success)
+      end)
+
+      vim.wait(100, function() return called end)
+      assert.is_true(called)
+      local pending = heartbeat.flush()
+      assert.equals(2, #pending)
+      assert.equals('a', pending[1].entity)
+    end)
+
+    it('should not keep heartbeats after a successful send', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        callback(true, nil)
+      end)
+
+      local called = false
+      sender.flush(function()
+        called = true
+      end)
+
+      vim.wait(100, function() return called end)
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
+  end)
+
+  describe('flush_sync', function()
+    local socket_stub
+
+    after_each(function()
+      if socket_stub and socket_stub.revert then
+        socket_stub:revert()
+        socket_stub = nil
+      end
+    end)
+
+    it('should wait for a scheduled send to finish', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        vim.schedule(function()
+          callback(true, nil)
+        end)
+      end)
+
+      assert.is_true(sender.flush_sync(500))
+      assert.stub(socket_stub).was_called(1)
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
+
+    it('should give up after the timeout', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+
+      assert.is_false(sender.flush_sync(20))
+    end)
+  end)
+
+  describe('exit flush', function()
+    it('should register a VimLeavePre autocmd on start', function()
+      sender.start()
+
+      local autocmds = vim.api.nvim_get_autocmds({ group = 'ShellTimeSender', event = 'VimLeavePre' })
+      assert.equals(1, #autocmds)
+
+      sender.stop()
+    end)
+
+    it('should remove the autocmd on stop', function()
+      sender.start()
+      sender.stop()
+
+      local ok = pcall(vim.api.nvim_get_autocmds, { group = 'ShellTimeSender' })
+      assert.is_false(ok)
+    end)
   end)
 
   describe('is_connected', function()
