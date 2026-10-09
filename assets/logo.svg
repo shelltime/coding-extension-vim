@@ -1,0 +1,29 @@
+<svg width="1000" height="1000" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#e0f2fe"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background with gradient -->
+  <rect x="0" y="0" width="256" height="256" fill="url(#bgGradient)"/>
+
+  <!-- Subtle arc suggesting time/movement -->
+  <path d="M 35.6 123.0 Q 128.0 30.6 220.4 123.0"
+        fill="none"
+        stroke="#3b82f6"
+        stroke-width="19"
+        stroke-linecap="round"/>
+
+  <!-- Simple prompt symbol -->
+  <path d="M 76.3 123.0 L 103.8 150.6 L 76.3 178.1"
+        fill="none"
+        stroke="#2563eb"
+        stroke-width="22"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- Floating dot suggesting time -->
+  <circle cx="179.7" cy="150.6" r="15" fill="#3b82f6"/>
+</svg>

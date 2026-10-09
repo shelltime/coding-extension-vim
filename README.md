@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="ShellTime logo" width="96" height="96">
+</p>
+
 # shelltime.nvim
 
 [![CI](https://github.com/shelltime/coding-extension-vim/actions/workflows/ci.yml/badge.svg)](https://github.com/shelltime/coding-extension-vim/actions/workflows/ci.yml)
