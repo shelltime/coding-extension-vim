@@ -19,6 +19,14 @@ local MAX_PENDING = 5000
 -- Last heartbeat time per file (for debouncing)
 local last_heartbeat_time = {}
 
+-- The write heartbeat of the latest save inside its file's debounce window,
+-- per file: sent ahead of the file's next heartbeat, or with the next flush
+local pending_writes = {}
+
+-- Each buffer's changedtick right after it was read from disk: a text change
+-- at that tick is the file loaded or reloaded, not typing
+local read_ticks = {}
+
 -- Last activity state (for duplicate detection)
 local last_activity = {
   file_path = nil,
@@ -32,8 +40,9 @@ local augroup = nil
 --- Check if DAP debugger is active
 ---@return boolean
 local function is_debugging()
-  local ok, dap = pcall(require, 'dap')
-  if ok and dap.session then
+  -- Only when nvim-dap is already loaded: requiring it would load a lazy-loaded plugin
+  local dap = package.loaded['dap']
+  if type(dap) == 'table' and type(dap.session) == 'function' then
     return dap.session() ~= nil
   end
   return false
@@ -124,18 +133,39 @@ local function update_last_activity(file_path, line_number, cursor_position)
   last_activity.cursor_position = cursor_position
 end
 
---- Create heartbeat data for current buffer
+--- Cursor of a buffer: from a window showing it, else where it was last left.
+--- The current window isn't always it: :wa and :bufdo write other buffers, which
+--- Neovim shows in a temporary autocmd window with the cursor on line 1.
+---@param bufnr number Buffer number
+---@return table|nil { line (1-indexed), column (0-indexed) }
+local function get_cursor(bufnr)
+  if vim.api.nvim_get_current_buf() == bufnr and vim.fn.win_gettype() ~= 'autocmd' then
+    return vim.api.nvim_win_get_cursor(0)
+  end
+  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+    if vim.fn.win_gettype(win) ~= 'autocmd' then
+      return vim.api.nvim_win_get_cursor(win)
+    end
+  end
+  local ok, mark = pcall(vim.api.nvim_buf_get_mark, bufnr, '"')
+  if ok and mark[1] > 0 then
+    return mark
+  end
+  return nil
+end
+
+--- Create heartbeat data for a buffer
 ---@param bufnr number Buffer number
 ---@param is_write boolean Whether this is a write event
+---@param cursor table|nil Cursor from get_cursor
 ---@return table|nil Heartbeat data or nil
-local function create_heartbeat(bufnr, is_write)
+local function create_heartbeat(bufnr, is_write, cursor)
   local file_path = vim.api.nvim_buf_get_name(bufnr)
   if file_path == '' then
     return nil
   end
 
   local project_root = system.get_project_root(file_path)
-  local cursor = vim.api.nvim_win_get_cursor(0)
 
   return {
     heartbeatId = system.uuid(),
@@ -148,8 +178,8 @@ local function create_heartbeat(bufnr, is_write)
     branch = git.get_branch(file_path),
     language = lang.get_language(vim.bo[bufnr].filetype, file_path),
     lines = vim.api.nvim_buf_line_count(bufnr),
-    lineNumber = cursor[1],       -- Already 1-indexed
-    cursorPosition = cursor[2],   -- 0-indexed column
+    lineNumber = cursor and cursor[1],       -- Already 1-indexed
+    cursorPosition = cursor and cursor[2],   -- 0-indexed column
     editor = 'neovim',
     editorVersion = system.get_editor_version(),
     plugin = 'shelltime',
@@ -184,25 +214,32 @@ local function add_heartbeat(heartbeat)
 end
 
 --- Handle editor event
+---@param bufnr number Buffer the event is for
 ---@param is_write boolean Whether this is a write event
 ---@param is_navigation boolean Whether this is a navigation event (BufEnter, cursor moves)
-local function on_event(is_write, is_navigation)
+local function on_event(bufnr, is_write, is_navigation)
   if not config.is_enabled() then
     return
   end
 
-  local bufnr = vim.api.nvim_get_current_buf()
-
   if not is_valid_buffer(bufnr) then
+    return
+  end
+
+  -- A reload of the file from disk (:checktime after a git checkout, a
+  -- formatter or an AI agent rewrote it) changes the text but isn't typing.
+  -- 'modified' can't tell it from an undo back to the saved state.
+  if not is_write and not is_navigation
+    and read_ticks[bufnr] == vim.api.nvim_buf_get_changedtick(bufnr) then
     return
   end
 
   local file_path = vim.api.nvim_buf_get_name(bufnr)
 
   -- Get cursor position for duplicate detection
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local line_number = cursor[1]
-  local cursor_position = cursor[2]
+  local cursor = get_cursor(bufnr)
+  local line_number = cursor and cursor[1]
+  local cursor_position = cursor and cursor[2]
 
   -- Skip repeated navigation events (same file and cursor position).
   -- Edits always count, even when the cursor stays in place (x, dd).
@@ -214,12 +251,23 @@ local function on_event(is_write, is_navigation)
   -- This ensures we track the latest position even if debounce blocks sending
   update_last_activity(file_path, line_number, cursor_position)
 
-  if not should_send_heartbeat(file_path, is_write) then
+  -- Saves count once per debounce window too: an auto-save plugin writes after
+  -- every change. A save inside the window is held as the file's pending write
+  -- (at its own time and cursor, replacing an earlier one), so the last save
+  -- before :wq is still sent.
+  if not should_send_heartbeat(file_path, false) then
+    if is_write then
+      pending_writes[file_path] = create_heartbeat(bufnr, true, cursor)
+    end
     return
   end
 
-  local heartbeat = create_heartbeat(bufnr, is_write)
+  local heartbeat = create_heartbeat(bufnr, is_write, cursor)
   if heartbeat then
+    if pending_writes[file_path] then
+      add_heartbeat(pending_writes[file_path])
+      pending_writes[file_path] = nil
+    end
     add_heartbeat(heartbeat)
   end
 end
@@ -232,35 +280,49 @@ function M.start()
 
   augroup = vim.api.nvim_create_augroup('ShellTimeHeartbeat', { clear = true })
 
-  -- File opened
+  -- File opened. :bufdo, :argdo, :cfdo and session restore enter every buffer
+  -- in turn; only the one still current once the command is done is the user's.
   vim.api.nvim_create_autocmd('BufEnter', {
     group = augroup,
-    callback = function()
-      on_event(false, true)
+    callback = function(args)
+      vim.schedule(function()
+        if vim.api.nvim_get_current_buf() == args.buf then
+          on_event(args.buf, false, true)
+        end
+      end)
+    end,
+  })
+
+  -- File read from disk, when opened or reloaded after it changed outside
+  vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileChangedShellPost' }, {
+    group = augroup,
+    callback = function(args)
+      read_ticks[args.buf] = vim.api.nvim_buf_get_changedtick(args.buf)
     end,
   })
 
   -- Text changed
   vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
     group = augroup,
-    callback = function()
-      on_event(false, false)
+    callback = function(args)
+      on_event(args.buf, false, false)
     end,
   })
 
-  -- File saved
+  -- File saved: args.buf is the buffer written, which :wa and :bufdo w make
+  -- different from the one being edited
   vim.api.nvim_create_autocmd('BufWritePost', {
     group = augroup,
-    callback = function()
-      on_event(true, false)
+    callback = function(args)
+      on_event(args.buf, true, false)
     end,
   })
 
   -- Cursor moved
   vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     group = augroup,
-    callback = function()
-      on_event(false, true)
+    callback = function(args)
+      on_event(args.buf, false, true)
     end,
   })
 end
@@ -273,11 +335,15 @@ function M.stop()
   end
 end
 
---- Get and clear pending heartbeats
+--- Get and clear pending heartbeats, the saves held back by the debounce included
 ---@return table[] Pending heartbeats
 function M.flush()
   local heartbeats = pending_heartbeats
   pending_heartbeats = {}
+  for _, write in pairs(pending_writes) do
+    table.insert(heartbeats, write)
+  end
+  pending_writes = {}
   return heartbeats
 end
 
@@ -294,12 +360,13 @@ end
 --- Get pending heartbeat count
 ---@return number Count
 function M.get_pending_count()
-  return #pending_heartbeats
+  return #pending_heartbeats + vim.tbl_count(pending_writes)
 end
 
 --- Clear debounce cache
 function M.clear_cache()
   last_heartbeat_time = {}
+  pending_writes = {}
   last_activity = {
     file_path = nil,
     line_number = nil,

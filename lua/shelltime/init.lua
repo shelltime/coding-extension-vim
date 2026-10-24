@@ -32,10 +32,11 @@ local function stop_tracking()
     return
   end
 
-  -- Flush remaining heartbeats before stopping
-  sender.flush()
-  sender.stop()
+  -- Stopping the sender removes its exit flush, so send what is pending now
+  -- and leave what the daemon doesn't take for it to send later
   heartbeat.stop()
+  sender.exit_flush()
+  sender.stop()
   enabled = false
 
   if config.get('debug') then
@@ -53,22 +54,23 @@ function M.setup(opts)
   -- Initialize config
   config.setup(opts)
 
-  -- Start tracking if enabled
-  if config.is_enabled() then
-    start_tracking()
-  end
+  -- Listen even while codeTracking is off: every event checks the config, so
+  -- turning it on in the file takes effect without restarting Neovim
+  start_tracking()
 
   initialized = true
 end
 
 --- Enable tracking
+---@return boolean Whether tracking runs
 function M.enable()
   if not initialized then
     vim.notify('[shelltime] Call setup() first', vim.log.levels.ERROR)
-    return
+    return false
   end
 
   start_tracking()
+  return true
 end
 
 --- Disable tracking
@@ -76,10 +78,10 @@ function M.disable()
   stop_tracking()
 end
 
---- Check if tracking is enabled
+--- Check if tracking is enabled: started, and not turned off in the config
 ---@return boolean
 function M.is_enabled()
-  return enabled
+  return enabled and config.is_enabled()
 end
 
 --- Force flush pending heartbeats
@@ -115,7 +117,10 @@ function M.status()
         status.platform or 'unknown',
         pending
       )
-      vim.notify(msg, vim.log.levels.INFO)
+      if sender.is_tracking_disabled() then
+        msg = msg .. '\n  Code tracking is off in the daemon config: set codeTracking.enabled to true (an older daemon also needs a restart)'
+      end
+      vim.notify(msg, sender.is_tracking_disabled() and vim.log.levels.WARN or vim.log.levels.INFO)
     else
       vim.notify(
         string.format(

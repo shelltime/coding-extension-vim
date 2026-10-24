@@ -87,7 +87,7 @@ describe('shelltime.sender', function()
     it('should call socket.send_heartbeats when there are heartbeats', function()
       socket_stub = stub(socket, 'send_heartbeats')
       socket_stub.invokes(function(heartbeats, callback)
-        callback(true, nil)
+        callback('ok', nil)
       end)
 
       local called = false
@@ -113,7 +113,7 @@ describe('shelltime.sender', function()
     it('should work without callback', function()
       socket_stub = stub(socket, 'send_heartbeats')
       socket_stub.invokes(function(heartbeats, callback)
-        callback(true, nil)
+        callback('ok', nil)
       end)
 
       assert.has_no_errors(function()
@@ -125,7 +125,7 @@ describe('shelltime.sender', function()
       heartbeat.requeue({ { entity = 'a' }, { entity = 'b' } })
       socket_stub = stub(socket, 'send_heartbeats')
       socket_stub.invokes(function(heartbeats, callback)
-        callback(false, 'Connection failed: ENOENT')
+        callback('failed', 'Connection failed: ENOENT')
       end)
 
       local called = false
@@ -141,11 +141,58 @@ describe('shelltime.sender', function()
       assert.equals('a', pending[1].entity)
     end)
 
+    it('should keep heartbeats and warn once when the daemon has code tracking off', function()
+      heartbeat.requeue({ { entity = 'a' }, { entity = 'b' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        callback('disabled', 'code tracking is disabled in the daemon')
+      end)
+      local notify_stub = stub(vim, 'notify')
+
+      local called = false
+      sender.flush(function(success)
+        called = true
+        assert.is_false(success)
+      end)
+      vim.wait(100, function() return called end)
+
+      assert.is_true(sender.is_tracking_disabled())
+      assert.equals(2, heartbeat.get_pending_count())
+      sender.flush()
+      assert.stub(notify_stub).was_called(1)
+      notify_stub:revert()
+    end)
+
+    it('should send a backlog in bounded messages and keep what was not delivered', function()
+      local queued = {}
+      for i = 1, 1201 do
+        queued[i] = { entity = tostring(i) }
+      end
+      heartbeat.requeue(queued)
+      local sizes = {}
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        table.insert(sizes, #heartbeats)
+        callback(#sizes < 3 and 'ok' or 'failed', nil)
+      end)
+
+      local called = false
+      sender.flush(function()
+        called = true
+      end)
+      vim.wait(100, function() return called end)
+
+      assert.same({ 500, 500, 201 }, sizes)
+      local pending = heartbeat.flush()
+      assert.equals(201, #pending)
+      assert.equals('1001', pending[1].entity)
+    end)
+
     it('should not keep heartbeats after a successful send', function()
       heartbeat.requeue({ { entity = 'a' } })
       socket_stub = stub(socket, 'send_heartbeats')
       socket_stub.invokes(function(heartbeats, callback)
-        callback(true, nil)
+        callback('ok', nil)
       end)
 
       local called = false
@@ -154,6 +201,120 @@ describe('shelltime.sender', function()
       end)
 
       vim.wait(100, function() return called end)
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
+  end)
+
+  describe('exit_flush', function()
+    local socket_stub
+    local save_stub
+    local offline = require('shelltime.offline')
+
+    before_each(function()
+      save_stub = stub(offline, 'save')
+    end)
+
+    after_each(function()
+      save_stub:revert()
+      if socket_stub and socket_stub.revert then
+        socket_stub:revert()
+        socket_stub = nil
+      end
+    end)
+
+    it('should leave heartbeats for the daemon when it is not running', function()
+      heartbeat.requeue({ { entity = 'a' }, { entity = 'b' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        callback('failed', 'Connection failed: ENOENT')
+      end)
+
+      sender.exit_flush(100)
+
+      assert.stub(save_stub).was_called(1)
+      assert.equals(2, #save_stub.calls[1].refs[1])
+    end)
+
+    it('should keep a send that got no answer in time', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+
+      sender.exit_flush(20)
+
+      assert.equals('a', save_stub.calls[1].refs[1][1].entity)
+    end)
+
+    it('should leave nothing when the daemon took them', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        callback('ok', nil)
+      end)
+
+      sender.exit_flush(100)
+
+      assert.equals(0, #save_stub.calls[1].refs[1])
+    end)
+
+    it('should wait for a send already in progress', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      local answered = false
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        vim.defer_fn(function()
+          answered = true
+          callback('ok', nil)
+        end, 20)
+      end)
+
+      sender.flush()
+      sender.exit_flush(500)
+
+      assert.is_true(answered)
+      assert.stub(socket_stub).was_called(1)
+      assert.equals(0, #save_stub.calls[1].refs[1])
+    end)
+
+    it('should keep what a send in progress has not delivered', function()
+      -- A periodic flush of a backlog is between chunks when Neovim exits
+      local queued = {}
+      for i = 1, 1200 do
+        queued[i] = { entity = tostring(i) }
+      end
+      heartbeat.requeue(queued)
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        if heartbeats[1].entity == '1' then
+          vim.defer_fn(function()
+            callback('ok', nil)
+          end, 10)
+        end
+      end)
+
+      sender.flush()
+      heartbeat.requeue({ { entity = 'newer' } })
+      sender.exit_flush(100)
+
+      -- Heartbeats 501-1200, then the one queued later
+      local saved = save_stub.calls[1].refs[1]
+      assert.equals(701, #saved)
+      assert.equals('501', saved[1].entity)
+      assert.equals('1200', saved[700].entity)
+      assert.equals('newer', saved[701].entity)
+    end)
+
+    it('should not queue again what it saved when the answer comes late', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      local answer
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        answer = callback
+      end)
+
+      sender.exit_flush(20)
+      answer('failed', 'Connection timeout')
+
+      assert.equals('a', save_stub.calls[1].refs[1][1].entity)
       assert.equals(0, heartbeat.get_pending_count())
     end)
   end)
@@ -173,7 +334,7 @@ describe('shelltime.sender', function()
       socket_stub = stub(socket, 'send_heartbeats')
       socket_stub.invokes(function(heartbeats, callback)
         vim.schedule(function()
-          callback(true, nil)
+          callback('ok', nil)
         end)
       end)
 

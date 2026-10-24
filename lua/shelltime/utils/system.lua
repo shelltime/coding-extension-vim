@@ -56,14 +56,13 @@ local root_markers = {
   '.root',
 }
 
---- Find project root by searching for marker files
----@param file_path string Starting file path
----@return string Project root path
-function M.get_project_root(file_path)
-  local path = vim.fn.fnamemodify(file_path, ':p:h')
-
+--- Find the nearest directory above a file that holds one of the markers
+---@param path string Directory to start from
+---@param markers string[] Marker file or directory names
+---@return string|nil Directory
+local function find_up(path, markers)
   while path and path ~= '/' and path ~= '' do
-    for _, marker in ipairs(root_markers) do
+    for _, marker in ipairs(markers) do
       local marker_path = path .. '/' .. marker
       if vim.fn.isdirectory(marker_path) == 1 or vim.fn.filereadable(marker_path) == 1 then
         return path
@@ -75,9 +74,22 @@ function M.get_project_root(file_path)
     end
     path = parent
   end
+  return nil
+end
 
-  -- Fallback to file's directory
-  return vim.fn.fnamemodify(file_path, ':p:h')
+--- Find project root: the repository the file is in, else the nearest
+--- directory with a project marker, else the file's directory. The repository
+--- comes first, so a package.json or Makefile in a monorepo's subdirectory
+--- doesn't split it into projects, and the project matches VS Code's workspace
+--- folder and the JetBrains project.
+---@param file_path string Starting file path
+---@return string Project root path
+function M.get_project_root(file_path)
+  local dir = vim.fn.fnamemodify(file_path, ':p:h')
+
+  return find_up(dir, { '.git' })
+    or find_up(dir, root_markers)
+    or dir
 end
 
 --- Get project name from root path (last 2 folder layers)

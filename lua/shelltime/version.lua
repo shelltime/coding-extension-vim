@@ -71,7 +71,8 @@ function M.check_version(daemon_version, callback)
   -- Use curl asynchronously via vim.fn.jobstart
   local stdout_data = {}
 
-  vim.fn.jobstart({ 'curl', '-sSL', '-m', '5', '-H', 'Accept: application/json', url }, {
+  -- -f: an error page is not an answer
+  vim.fn.jobstart({ 'curl', '-fsSL', '-m', '5', '-H', 'Accept: application/json', url }, {
     stdout_buffered = true,
     on_stdout = function(_, data)
       if data then
@@ -97,8 +98,8 @@ function M.check_version(daemon_version, callback)
         local response = table.concat(stdout_data, '')
         local result = parse_json(response)
 
-        if result then
-          if not result.isLatest then
+        if result and type(result.isLatest) == 'boolean' then
+          if not result.isLatest and result.latestVersion then
             has_shown_warning = true
             M.show_update_warning(daemon_version, result.latestVersion, web_endpoint)
           elseif config.get('debug') then
@@ -134,13 +135,8 @@ function M.show_update_warning(current_version, latest_version, web_endpoint)
     update_command
   )
 
+  -- The command is in the message; the clipboard is the user's
   vim.notify(message, vim.log.levels.WARN)
-
-  -- Also copy to clipboard if available
-  if vim.fn.has('clipboard') == 1 then
-    vim.fn.setreg('+', update_command)
-    vim.notify('[shelltime] Update command copied to clipboard', vim.log.levels.INFO)
-  end
 end
 
 return M

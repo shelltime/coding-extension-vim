@@ -10,15 +10,23 @@ end
 local function parse_value(value)
   value = trim(value)
 
-  -- Remove quotes if present
+  -- Remove quotes if present; a # inside them is not a comment
+  local quoted = value:match('^"(.-)"%s*#') or value:match("^'(.-)'%s*#")
+  if quoted then
+    return quoted
+  end
   if value:match('^".*"$') or value:match("^'.*'$") then
     return value:sub(2, -2)
   end
 
-  -- Boolean
-  if value == 'true' then
+  -- Drop a trailing comment (enabled: true # code tracking)
+  value = trim(value:gsub('%s+#.*$', ''))
+
+  -- Boolean, in the spellings the CLI's YAML library reads as one
+  local lower = value:lower()
+  if lower == 'true' or lower == 'yes' or lower == 'on' then
     return true
-  elseif value == 'false' then
+  elseif lower == 'false' or lower == 'no' or lower == 'off' then
     return false
   end
 

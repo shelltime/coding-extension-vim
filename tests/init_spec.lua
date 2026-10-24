@@ -112,6 +112,29 @@ describe('shelltime', function()
         fresh.disable()
       end)
     end)
+
+    it('should leave what the daemon does not take for it to send later', function()
+      -- Disabling removes the exit flush, so nothing would save the queue on quit
+      shelltime.setup()
+      local heartbeat = require('shelltime.heartbeat')
+      local socket = require('shelltime.socket')
+      local offline = require('shelltime.offline')
+      heartbeat.requeue({ { entity = 'a' }, { entity = 'b' } })
+      local send_stub = stub(socket, 'send_heartbeats')
+      send_stub.invokes(function(heartbeats, callback)
+        callback('failed', 'Connection failed: ENOENT')
+      end)
+      local save_stub = stub(offline, 'save')
+
+      shelltime.disable()
+
+      local saved = save_stub.calls[1].refs[1]
+      save_stub:revert()
+      send_stub:revert()
+      assert.equals(2, #saved)
+      assert.equals('a', saved[1].entity)
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
   end)
 
   describe('is_enabled', function()

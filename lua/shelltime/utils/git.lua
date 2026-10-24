@@ -2,7 +2,76 @@
 
 local M = {}
 
---- Get current git branch for a file
+-- How long a branch git printed is used before git is asked again
+local BRANCH_CACHE_MS = 30000
+
+-- Branches git printed, per git directory, for repositories whose HEAD file
+-- doesn't name the branch
+local branch_cache = {}
+
+--- Find the git directory for a file's directory: the nearest .git directory,
+--- or where a worktree's or submodule's .git file points
+---@param dir string Directory to start from
+---@return string|nil Git directory
+local function find_git_dir(dir)
+  local path = dir
+  while path and path ~= '' do
+    local dot_git = path .. '/.git'
+    if vim.fn.isdirectory(dot_git) == 1 then
+      return dot_git
+    end
+    if vim.fn.filereadable(dot_git) == 1 then
+      local ok, lines = pcall(vim.fn.readfile, dot_git, '', 1)
+      local gitdir = ok and lines[1] and lines[1]:match('^gitdir:%s*(.-)%s*$')
+      if gitdir then
+        if gitdir:sub(1, 1) ~= '/' then
+          gitdir = path .. '/' .. gitdir
+        end
+        return vim.fn.fnamemodify(gitdir, ':p'):gsub('/$', '')
+      end
+    end
+    local parent = vim.fn.fnamemodify(path, ':h')
+    if parent == path then
+      break
+    end
+    path = parent
+  end
+  return nil
+end
+
+--- The branch git itself reports for a directory, at most once per git
+--- directory every BRANCH_CACHE_MS, or '' when git fails
+---@param dir string Directory in the repository
+---@param git_dir string Its git directory
+---@return string Branch name or empty string
+-- How long the reftable fallback waits for git
+local GIT_TIMEOUT_MS = 1000
+
+local function branch_from_git(dir, git_dir)
+  local now = (vim.uv or vim.loop).now()
+  local cached = branch_cache[git_dir]
+  if cached and now - cached.at < BRANCH_CACHE_MS then
+    return cached.branch
+  end
+
+  local branch = ''
+  -- vim.system raises an error when git isn't installed, and git fails outside a
+  -- repository. Only stdout holds the branch; warnings go to stderr.
+  local ok, result = pcall(function()
+    return vim.system({ 'git', '-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD' }, { text = true }):wait(GIT_TIMEOUT_MS)
+  end)
+  if ok and result.code == 0 then
+    branch = vim.trim(result.stdout or '')
+  end
+  branch_cache[git_dir] = { branch = branch, at = now }
+  return branch
+end
+
+--- Get current git branch for a file, as `git rev-parse --abbrev-ref HEAD`
+--- prints it ('HEAD' when detached). It reads HEAD instead of running git,
+--- which blocked the editor on every heartbeat. A reftable repository keeps
+--- its real HEAD in reftable/ and leaves a `ref: refs/heads/.invalid` stub,
+--- so only there git is asked, and its answer cached.
 ---@param file_path string File path
 ---@return string Branch name or empty string
 function M.get_branch(file_path)
@@ -13,25 +82,21 @@ function M.get_branch(file_path)
     return ''
   end
 
-  local result = vim.fn.systemlist({
-    'git',
-    '-C',
-    dir,
-    'rev-parse',
-    '--abbrev-ref',
-    'HEAD',
-  })
-
-  -- Check for errors
-  if vim.v.shell_error ~= 0 then
+  local git_dir = find_git_dir(dir)
+  if not git_dir then
     return ''
   end
 
-  if result and #result > 0 then
-    return vim.trim(result[1])
+  local ok, lines = pcall(vim.fn.readfile, git_dir .. '/HEAD', '', 1)
+  if not ok or not lines[1] then
+    return ''
   end
 
-  return ''
+  local branch = lines[1]:match('^ref:%s*refs/heads/(.-)%s*$')
+  if branch == '.invalid' or vim.fn.isdirectory(git_dir .. '/reftable') == 1 then
+    return branch_from_git(dir, git_dir)
+  end
+  return branch or 'HEAD'
 end
 
 return M

@@ -46,6 +46,12 @@ describe('shelltime.utils.yaml', function()
         assert.is_true(result.enabled)
       end)
 
+      it('should ignore a trailing comment', function()
+        local result = yaml.parse('codeTracking:\n  enabled: true # editor heartbeats\nsocketPath: "/tmp/a#b.sock" # quoted')
+        assert.is_true(result.codeTracking.enabled)
+        assert.equals('/tmp/a#b.sock', result.socketPath)
+      end)
+
       it('should parse boolean false', function()
         local result = yaml.parse('enabled: false')
         assert.is_false(result.enabled)

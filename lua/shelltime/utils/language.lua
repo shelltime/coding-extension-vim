@@ -25,9 +25,10 @@ local extension_map = {
   h = 'c',
   hpp = 'cpp',
   cs = 'csharp',
-  sh = 'sh',
-  bash = 'bash',
-  zsh = 'zsh',
+  txt = 'plaintext',
+  sh = 'shellscript',
+  bash = 'shellscript',
+  zsh = 'shellscript',
   fish = 'fish',
   html = 'html',
   css = 'css',
@@ -46,6 +47,23 @@ local extension_map = {
   conf = 'conf',
 }
 
+-- Neovim filetypes whose VS Code language id differs. The ShellTime plugins report
+-- VS Code ids, which the web merges on, so a language isn't split across editors.
+local filetype_ids = {
+  sh = 'shellscript',
+  bash = 'shellscript',
+  zsh = 'shellscript',
+  text = 'plaintext',
+  make = 'makefile',
+  cs = 'csharp',
+  objc = 'objective-c',
+  objcpp = 'objective-cpp',
+  tex = 'latex',
+  ps1 = 'powershell',
+  ['javascript.jsx'] = 'javascriptreact',
+  ['typescript.tsx'] = 'typescriptreact',
+}
+
 --- Get language for a file
 ---@param filetype string|nil Buffer filetype
 ---@param file_path string File path
@@ -53,7 +71,7 @@ local extension_map = {
 function M.get_language(filetype, file_path)
   -- Use filetype if available
   if filetype and filetype ~= '' then
-    return filetype
+    return filetype_ids[filetype] or filetype
   end
 
   -- Fallback: detect from file extension
@@ -65,7 +83,8 @@ function M.get_language(filetype, file_path)
     return ''
   end
 
-  local ext = file_path:match('%.([^%.]+)$')
+  -- From the file name only: a dot in a directory (john.doe, .config) is no extension
+  local ext = filename:match('%.([^%.]+)$')
   if ext then
     ext = ext:lower()
     return extension_map[ext] or ext
