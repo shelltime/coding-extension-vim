@@ -12,13 +12,13 @@ A Neovim plugin for automatic coding activity tracking. Works with the ShellTime
 ## Features
 
 - **Automatic Time Tracking** - Passively monitors coding activity
-- **Language Detection** - Uses the buffer's filetype, falling back to the file extension
+- **Language Detection** - Uses the buffer's filetype, falling back to the file extension, and reports it as the VS Code language id (`sh` → `shellscript`, `text` → `plaintext`, …) so a language adds up across editors
 - **Project Analytics** - Tracks time per project/workspace
 - **Git Integration** - Records activity by git branch
 - **Debug Detection** - Marks activity as `debugging` while an nvim-dap session is active
-- **Debouncing & Batching** - At most one heartbeat per file every 30s (saves always count), sent in batches every 2 minutes
-- **Offline Support** - Keeps heartbeats in memory and retries them when the daemon is unavailable
-- **Flush on Exit** - Sends pending heartbeats when Neovim quits, so short sessions aren't lost
+- **Debouncing & Batching** - At most one heartbeat per file every 30s, sent in batches every 2 minutes
+- **Offline Support** - Keeps heartbeats in memory and retries them when the daemon is unavailable or has code tracking turned off
+- **Flush on Exit** - Sends pending heartbeats when Neovim quits, and leaves what the daemon can't take for it to send later, so short sessions aren't lost
 - **CLI Update Check** - Warns once per session when your ShellTime CLI is out of date
 
 ## Prerequisites
@@ -61,13 +61,12 @@ Or in TOML format (`~/.shelltime/config.toml`):
 enabled = true
 ```
 
-Configs created by `shelltime init` already include this; older configs may not. The daemon ignores editor heartbeats unless it is `true`, and it reads the setting at startup, so restart the daemon after changing it (for example with `shelltime daemon reinstall`).
+Configs created by `shelltime init` already include this; older configs may not. The daemon ignores editor heartbeats unless it is `true`. Recent daemons pick the change up right away; older ones read it only at startup, so restart them after changing it (for example with `shelltime daemon reinstall`).
 
 ## Requirements
 
 - Neovim >= 0.10.0 (Neovim only; classic Vim isn't supported)
 - ShellTime daemon running (see [Prerequisites](#prerequisites))
-- Git (optional, for branch tracking)
 - `curl` (optional, for the CLI update check)
 
 ## Installation
@@ -117,19 +116,19 @@ Calling `setup()` is required: loading the plugin only registers its commands. W
 
 ## Configuration
 
-The plugin reads settings from `~/.shelltime/config.yaml` by default:
+The plugin reads the same files as the ShellTime CLI: the first of `~/.shelltime/config.yaml`, `config.yml` and `config.toml`, with the first `config.local.yaml`, `config.local.yml` or `config.local.toml` merged over it.
 
 ```lua
--- Default setup (uses ~/.shelltime/config.yaml)
+-- Default setup (reads the CLI's config files)
 require("shelltime").setup()
 
--- Custom config path
+-- Read one file instead (YAML or TOML)
 require("shelltime").setup({
   config = "/path/to/your/config.yaml",
 })
 ```
 
-`config` is the only `setup()` option. The plugin reads just this one YAML file: not `config.toml`, `config.yml` or `config.local.*`. If the file is missing, it uses the defaults below. The file is re-read whenever it changes, so most settings apply without restarting Neovim (`heartbeatInterval` needs a restart).
+`config` is the only `setup()` option. If there is no config file, the plugin uses the defaults below. The files are checked for changes every few seconds, so most settings apply without restarting Neovim, `codeTracking.enabled` included (`heartbeatInterval` needs a restart).
 
 ### Config File Options
 
@@ -163,14 +162,16 @@ The plugin monitors these Neovim events:
 | `BufWritePost` | Saving a file |
 | `CursorMoved` / `CursorMovedI` | Moving cursor |
 
+Commands that pass through many buffers (`:bufdo`, `:argdo`, `:cfdo`, session restore) count only the buffer that is current when they finish, and a text change that leaves the buffer unmodified (the file reloaded from disk after a `git checkout`, or a formatter or agent rewrote it) isn't counted as editing. Saves with `:wa` are attributed to each buffer written, at its own cursor.
+
 Only regular files are tracked. Special buffers (help, terminal, quickfix, etc.), unnamed buffers, files inside `.git/`, and non-`file://` URLs such as `oil://` or `fugitive://` are skipped.
 
 Heartbeats are:
 - **Deduplicated**: Buffer and cursor events at the same file and cursor position as the last event are skipped (edits always count)
-- **Debounced**: Max 1 heartbeat per file per 30 seconds (except saves)
-- **Batched**: Sent to the daemon over its Unix socket every 2 minutes
-- **Flushed on exit**: Pending heartbeats are sent on `VimLeavePre` (Neovim waits up to 1.5s)
-- **Queued**: Kept in memory and retried on the next flush if the daemon is unavailable (up to 5,000; oldest dropped first). They are not written to disk, so they are lost if Neovim exits while the daemon is down
+- **Debounced**: Max 1 heartbeat per file per 30 seconds. Saves count once per window too, since auto-save plugins write after every change: a save inside the window marks the file's next heartbeat as a write
+- **Batched**: Sent to the daemon over its Unix socket every 2 minutes, at most 500 per message
+- **Flushed on exit**: Pending heartbeats are sent on `VimLeavePre` (Neovim waits up to 1.5s). What the daemon doesn't take goes to `~/.shelltime/coding-heartbeat.data.log`, which the daemon resends once it runs
+- **Queued**: Kept in memory and retried on the next flush if the daemon is unavailable or has code tracking turned off (up to 5,000; oldest dropped first)
 
 ### Data Tracked
 
@@ -182,11 +183,11 @@ Each heartbeat includes:
 - **System info**: Hostname, OS, OS version
 - **Activity**: Timestamp, whether it was a save event, category (`coding` or `debugging`)
 
-The project root is the nearest parent directory containing `.git`, `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `Makefile`, `CMakeLists.txt`, `.project` or `.root` (otherwise the file's directory). The project name is its last two path segments, e.g. `code/my-app`.
+The project root is the git repository the file is in (as in VS Code and JetBrains, so a monorepo's packages count toward one project). Outside a repository it is the nearest parent directory containing `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `Makefile`, `CMakeLists.txt`, `.project` or `.root`, otherwise the file's directory. The project name is its last two path segments, e.g. `code/my-app`. The branch is read from the repository's `HEAD`, without running `git`.
 
 ### CLI Update Check
 
-On startup, if the daemon is reachable, the plugin asks `<apiEndpoint>/api/v1/cli/version-check` (via `curl`) whether the daemon's CLI version is the latest. If not, it shows a warning once per session with the update command (`curl -sSL <webEndpoint>/i | bash`) and copies that command to the `+` register when a clipboard is available. The check is skipped when `apiEndpoint` or `webEndpoint` is not set.
+On startup, if the daemon is reachable, the plugin asks `<apiEndpoint>/api/v1/cli/version-check` (via `curl`) whether the daemon's CLI version is the latest. If not, it shows a warning once per session with the update command (`curl -sSL <webEndpoint>/i | bash`). The check is skipped when `apiEndpoint` or `webEndpoint` is not set.
 
 ## Troubleshooting
 
@@ -218,7 +219,7 @@ On startup, if the daemon is reachable, the plugin asks `<apiEndpoint>/api/v1/cl
 Run `:ShellTimeStatus` to check:
 - If "Disconnected", ensure daemon is running and `socketPath` matches the daemon's socket
 - If pending heartbeats > 0, try `:ShellTimeFlush`
-- If "Connected" and flushes succeed but no activity shows up, check that `codeTracking.enabled` is `true` for the daemon and restart it. The daemon drops heartbeats otherwise, and the plugin can't tell
+- If it warns that code tracking is off in the daemon config, set `codeTracking.enabled` to `true` (and restart an older daemon). The daemon drops heartbeats until then; the plugin keeps them queued
 
 ## License
 

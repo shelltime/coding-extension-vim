@@ -24,14 +24,17 @@ Neovim plugin for coding activity tracking, written in Lua. Communicates with Sh
 ```
 lua/shelltime/
   init.lua          -- Entry point: setup(), enable/disable, status, flush
-  config.lua        -- YAML config loading from ~/.shelltime/config.yaml
+  config.lua        -- Config: the CLI's files (config.yaml > .yml > .toml, plus config.local.*)
   heartbeat.lua     -- Autocmd event handling, heartbeat creation, debouncing
   sender.lua        -- Timer-based batching, socket communication
   socket.lua        -- Unix socket client (vim.loop/libuv)
+  offline.lua       -- Leaves undelivered heartbeats in the daemon's resend file on exit
   utils/
     git.lua         -- Git branch detection
     system.lua      -- OS/hostname info
     yaml.lua        -- Minimal YAML parser
+    toml.lua        -- Minimal TOML parser
+    language.lua    -- Filetype -> VS Code language id
 
 plugin/shelltime.lua  -- Auto-load, user commands (:ShellTimeStatus, etc.)
 ```
@@ -55,7 +58,7 @@ plugin/shelltime.lua  -- Auto-load, user commands (:ShellTimeStatus, etc.)
 
 ## Key Constants
 
-- Config path: `~/.shelltime/config.yaml`
+- Config files: `~/.shelltime/config.{yaml,yml,toml}` + `config.local.*` (or `setup({ config = path })`)
 - Socket path: `/tmp/shelltime.sock`
 - Heartbeat interval: 120000ms (2 min)
 - Debounce interval: 30000ms (30 sec)
