@@ -168,7 +168,7 @@ Only regular files are tracked. Special buffers (help, terminal, quickfix, etc.)
 
 Heartbeats are:
 - **Deduplicated**: Buffer and cursor events at the same file and cursor position as the last event are skipped (edits always count)
-- **Debounced**: Max 1 heartbeat per file per 30 seconds. Saves count once per window too, since auto-save plugins write after every change: a save inside the window marks the file's next heartbeat as a write
+- **Debounced**: Max 1 heartbeat per file per 30 seconds. Saves count once per window too, since auto-save plugins write after every change: the last save inside the window is kept, at its own time and cursor, and sent with the file's next heartbeat or the next flush, so the save before `:wq` always counts
 - **Batched**: Sent to the daemon over its Unix socket every 2 minutes, at most 500 per message
 - **Flushed on exit**: Pending heartbeats are sent on `VimLeavePre`, and Neovim waits up to 1.5s for them and for any send already in progress. What the daemon doesn't take, or doesn't acknowledge in time, goes to `~/.shelltime/coding-heartbeat.data.log`, which the daemon resends once it runs
 - **Queued**: Kept in memory and retried on the next flush if the daemon is unavailable or has code tracking turned off (up to 5,000; oldest dropped first)

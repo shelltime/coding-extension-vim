@@ -287,18 +287,56 @@ describe('shelltime.heartbeat', function()
       assert.equals(paths[3], pending[1].entity)
     end)
 
-    it('should count saves once per debounce window and carry the write', function()
+    it('should count saves once per debounce window and keep the last one', function()
       config._set_for_testing({ debounce_interval = 60000 })
       local bufnr = open_buffer('/tmp/shelltime-test/autosave.lua')
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'a', 'b', 'c' })
       heartbeat.clear_cache()
 
-      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
-      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
-      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+      for line = 1, 3 do
+        vim.api.nvim_win_set_cursor(0, { line, 0 })
+        vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+      end
+
+      -- The window's write, then the last save inside it, where it happened
+      assert.equals(2, heartbeat.get_pending_count())
+      local pending = heartbeat.flush()
+      assert.equals(2, #pending)
+      assert.is_true(pending[1].isWrite)
+      assert.equals(1, pending[1].lineNumber)
+      assert.is_true(pending[2].isWrite)
+      assert.equals(3, pending[2].lineNumber)
+      assert.equals(0, #heartbeat.flush())
+    end)
+
+    it('should send a save inside the window ahead of the file\'s next heartbeat', function()
+      config._set_for_testing({ debounce_interval = 60000 })
+      local bufnr = open_buffer('/tmp/shelltime-test/save-then-edit.lua')
+      heartbeat.clear_cache()
+      local real_time = os.time
+      local now = real_time()
+      os.time = function()
+        return now
+      end
+
+      local ok, err = pcall(function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'typed' })
+        vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
+        now = now + 5
+        vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+        now = now + 60
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'typed more' })
+        vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
+      end)
+      os.time = real_time
+      assert(ok, err)
 
       local pending = heartbeat.flush()
-      assert.equals(1, #pending)
-      assert.is_true(pending[1].isWrite)
+      assert.equals(3, #pending)
+      assert.is_false(pending[1].isWrite)
+      assert.is_true(pending[2].isWrite)
+      assert.equals(pending[1].time + 5, pending[2].time)
+      assert.is_false(pending[3].isWrite)
     end)
 
     it('should skip a text change that leaves the buffer unmodified', function()

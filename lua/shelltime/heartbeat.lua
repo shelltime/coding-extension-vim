@@ -19,7 +19,8 @@ local MAX_PENDING = 5000
 -- Last heartbeat time per file (for debouncing)
 local last_heartbeat_time = {}
 
--- Files saved inside their debounce window: the next heartbeat is the write
+-- The write heartbeat of the latest save inside its file's debounce window,
+-- per file: sent ahead of the file's next heartbeat, or with the next flush
 local pending_writes = {}
 
 -- Last activity state (for duplicate detection)
@@ -161,8 +162,6 @@ local function create_heartbeat(bufnr, is_write, cursor)
   end
 
   local project_root = system.get_project_root(file_path)
-  is_write = is_write or pending_writes[file_path] == true
-  pending_writes[file_path] = nil
 
   return {
     heartbeatId = system.uuid(),
@@ -248,16 +247,22 @@ local function on_event(bufnr, is_write, is_navigation)
   update_last_activity(file_path, line_number, cursor_position)
 
   -- Saves count once per debounce window too: an auto-save plugin writes after
-  -- every change. A save inside the window makes the next heartbeat the write.
+  -- every change. A save inside the window is held as the file's pending write
+  -- (at its own time and cursor, replacing an earlier one), so the last save
+  -- before :wq is still sent.
   if not should_send_heartbeat(file_path, false) then
     if is_write then
-      pending_writes[file_path] = true
+      pending_writes[file_path] = create_heartbeat(bufnr, true, cursor)
     end
     return
   end
 
   local heartbeat = create_heartbeat(bufnr, is_write, cursor)
   if heartbeat then
+    if pending_writes[file_path] then
+      add_heartbeat(pending_writes[file_path])
+      pending_writes[file_path] = nil
+    end
     add_heartbeat(heartbeat)
   end
 end
@@ -317,11 +322,15 @@ function M.stop()
   end
 end
 
---- Get and clear pending heartbeats
+--- Get and clear pending heartbeats, the saves held back by the debounce included
 ---@return table[] Pending heartbeats
 function M.flush()
   local heartbeats = pending_heartbeats
   pending_heartbeats = {}
+  for _, write in pairs(pending_writes) do
+    table.insert(heartbeats, write)
+  end
+  pending_writes = {}
   return heartbeats
 end
 
@@ -338,7 +347,7 @@ end
 --- Get pending heartbeat count
 ---@return number Count
 function M.get_pending_count()
-  return #pending_heartbeats
+  return #pending_heartbeats + vim.tbl_count(pending_writes)
 end
 
 --- Clear debounce cache
