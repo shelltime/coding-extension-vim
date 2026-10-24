@@ -162,7 +162,7 @@ The plugin monitors these Neovim events:
 | `BufWritePost` | Saving a file |
 | `CursorMoved` / `CursorMovedI` | Moving cursor |
 
-Commands that pass through many buffers (`:bufdo`, `:argdo`, `:cfdo`, session restore) count only the buffer that is current when they finish, and a text change that leaves the buffer unmodified (the file reloaded from disk after a `git checkout`, or a formatter or agent rewrote it) isn't counted as editing. Saves with `:wa` are attributed to each buffer written, at its own cursor.
+Commands that pass through many buffers (`:bufdo`, `:argdo`, `:cfdo`, session restore) count only the buffer that is current when they finish, and the text change of a reload from disk (the file changed outside after a `git checkout`, or a formatter or agent rewrote it) isn't counted as editing, while an undo back to the saved state is. Saves with `:wa` are attributed to each buffer written, at its own cursor.
 
 Only regular files are tracked. Special buffers (help, terminal, quickfix, etc.), unnamed buffers, files inside `.git/`, and non-`file://` URLs such as `oil://` or `fugitive://` are skipped.
 

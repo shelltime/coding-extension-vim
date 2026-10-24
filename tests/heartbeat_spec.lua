@@ -339,15 +339,31 @@ describe('shelltime.heartbeat', function()
       assert.is_false(pending[3].isWrite)
     end)
 
-    it('should skip a text change that leaves the buffer unmodified', function()
-      -- A reload from disk after a git checkout, a formatter or an AI agent
+    it('should skip the text change of a reload from disk', function()
+      -- :checktime after a git checkout, or a formatter or an AI agent rewrote the file
       local bufnr = open_buffer('/tmp/shelltime-test/reloaded.lua')
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'from disk' })
+      vim.bo[bufnr].modified = false
+      vim.api.nvim_exec_autocmds('FileChangedShellPost', { buffer = bufnr })
+
+      vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
+      assert.equals(0, heartbeat.get_pending_count())
+
+      -- Typing after the reload counts again
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'typed' })
+      vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
+      assert.equals(1, heartbeat.get_pending_count())
+    end)
+
+    it('should count an undo back to the saved state', function()
+      local bufnr = open_buffer('/tmp/shelltime-test/undone.lua')
+      vim.api.nvim_exec_autocmds('BufReadPost', { buffer = bufnr })
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'saved text again' })
       vim.bo[bufnr].modified = false
 
       vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
 
-      assert.equals(0, heartbeat.get_pending_count())
+      assert.equals(1, heartbeat.get_pending_count())
     end)
 
     it('should attribute a write to the buffer written, not the current one', function()

@@ -23,6 +23,10 @@ local last_heartbeat_time = {}
 -- per file: sent ahead of the file's next heartbeat, or with the next flush
 local pending_writes = {}
 
+-- Each buffer's changedtick right after it was read from disk: a text change
+-- at that tick is the file loaded or reloaded, not typing
+local read_ticks = {}
+
 -- Last activity state (for duplicate detection)
 local last_activity = {
   file_path = nil,
@@ -222,10 +226,11 @@ local function on_event(bufnr, is_write, is_navigation)
     return
   end
 
-  -- A text change that leaves the buffer unmodified is a reload of the file
-  -- from disk (:checktime after a git checkout, a formatter or an AI agent
-  -- rewrote it), not typing
-  if not is_write and not is_navigation and not vim.bo[bufnr].modified then
+  -- A reload of the file from disk (:checktime after a git checkout, a
+  -- formatter or an AI agent rewrote it) changes the text but isn't typing.
+  -- 'modified' can't tell it from an undo back to the saved state.
+  if not is_write and not is_navigation
+    and read_ticks[bufnr] == vim.api.nvim_buf_get_changedtick(bufnr) then
     return
   end
 
@@ -285,6 +290,14 @@ function M.start()
           on_event(args.buf, false, true)
         end
       end)
+    end,
+  })
+
+  -- File read from disk, when opened or reloaded after it changed outside
+  vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileChangedShellPost' }, {
+    group = augroup,
+    callback = function(args)
+      read_ticks[args.buf] = vim.api.nvim_buf_get_changedtick(args.buf)
     end,
   })
 
