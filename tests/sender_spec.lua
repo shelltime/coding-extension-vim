@@ -255,6 +255,68 @@ describe('shelltime.sender', function()
 
       assert.equals(0, #save_stub.calls[1].refs[1])
     end)
+
+    it('should wait for a send already in progress', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      local answered = false
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        vim.defer_fn(function()
+          answered = true
+          callback('ok', nil)
+        end, 20)
+      end)
+
+      sender.flush()
+      sender.exit_flush(500)
+
+      assert.is_true(answered)
+      assert.stub(socket_stub).was_called(1)
+      assert.equals(0, #save_stub.calls[1].refs[1])
+    end)
+
+    it('should keep what a send in progress has not delivered', function()
+      -- A periodic flush of a backlog is between chunks when Neovim exits
+      local queued = {}
+      for i = 1, 1200 do
+        queued[i] = { entity = tostring(i) }
+      end
+      heartbeat.requeue(queued)
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        if heartbeats[1].entity == '1' then
+          vim.defer_fn(function()
+            callback('ok', nil)
+          end, 10)
+        end
+      end)
+
+      sender.flush()
+      heartbeat.requeue({ { entity = 'newer' } })
+      sender.exit_flush(100)
+
+      -- Heartbeats 501-1200, then the one queued later
+      local saved = save_stub.calls[1].refs[1]
+      assert.equals(701, #saved)
+      assert.equals('501', saved[1].entity)
+      assert.equals('1200', saved[700].entity)
+      assert.equals('newer', saved[701].entity)
+    end)
+
+    it('should not queue again what it saved when the answer comes late', function()
+      heartbeat.requeue({ { entity = 'a' } })
+      local answer
+      socket_stub = stub(socket, 'send_heartbeats')
+      socket_stub.invokes(function(heartbeats, callback)
+        answer = callback
+      end)
+
+      sender.exit_flush(20)
+      answer('failed', 'Connection timeout')
+
+      assert.equals('a', save_stub.calls[1].refs[1][1].entity)
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
   end)
 
   describe('flush_sync', function()

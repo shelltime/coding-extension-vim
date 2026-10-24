@@ -23,8 +23,10 @@ local MAX_PER_MESSAGE = 500
 -- Connection status
 local is_connected = false
 
--- Heartbeats of the send in progress, until it is known what became of them
-local in_flight = nil
+-- Sends in progress by id: their heartbeats and how many the daemon took,
+-- until it is known what became of the rest
+local outstanding = {}
+local next_send_id = 0
 
 -- Whether the daemon last dropped heartbeats because code tracking is off
 local tracking_disabled = false
@@ -55,14 +57,19 @@ local function send_heartbeats(callback)
     return
   end
 
-  in_flight = heartbeats
+  next_send_id = next_send_id + 1
+  local id = next_send_id
+  local send = { heartbeats = heartbeats, delivered = 0 }
+  outstanding[id] = send
 
   local function finish(sent, status, err)
-    in_flight = nil
+    -- exit_flush gives up on a send that takes too long and saves the rest itself
+    local abandoned = outstanding[id] == nil
+    outstanding[id] = nil
     is_connected = status ~= 'failed'
     tracking_disabled = status == 'disabled'
 
-    if sent < #heartbeats then
+    if sent < #heartbeats and not abandoned then
       -- Keep them for the next flush instead of dropping them
       heartbeat.requeue(vim.list_slice(heartbeats, sent + 1))
     end
@@ -97,6 +104,7 @@ local function send_heartbeats(callback)
     local chunk = vim.list_slice(heartbeats, sent + 1, sent + MAX_PER_MESSAGE)
     socket.send_heartbeats(chunk, function(status, err)
       if status == 'ok' then
+        send.delivered = sent + #chunk
         send_from(sent + #chunk)
       else
         finish(sent, status, err)
@@ -129,7 +137,7 @@ function M.start()
   vim.api.nvim_create_autocmd('VimLeavePre', {
     group = augroup,
     callback = function()
-      M.exit_flush(EXIT_FLUSH_TIMEOUT)
+      M.exit_flush()
     end,
   })
 
@@ -168,27 +176,31 @@ function M.flush(callback)
   send_heartbeats(callback)
 end
 
---- Flush pending heartbeats and block until sent or timed out
+--- Flush pending heartbeats and block until every send in progress, this one
+--- and any started earlier, has finished or the timeout passed
 ---@param timeout number Maximum wait in milliseconds
----@return boolean True if the send finished within the timeout
+---@return boolean True if they all finished within the timeout
 function M.flush_sync(timeout)
-  local done = false
-  send_heartbeats(function()
-    done = true
-  end)
+  send_heartbeats()
   return vim.wait(timeout, function()
-    return done
+    return next(outstanding) == nil
   end, 10)
 end
 
 --- Send what is pending before Neovim exits, and leave what doesn't go out
---- (no daemon, or no answer in time) for the daemon to send later
----@param timeout number Maximum wait in milliseconds
+--- (no daemon, or no answer in time) for the daemon to send later: what the
+--- sends still in progress have not delivered, and what is still queued
+---@param timeout number|nil Maximum wait in milliseconds (1.5 s by default)
 function M.exit_flush(timeout)
-  local delivered = M.flush_sync(timeout)
+  M.flush_sync(timeout or EXIT_FLUSH_TIMEOUT)
+
+  local ids = vim.tbl_keys(outstanding)
+  table.sort(ids)
   local unsent = {}
-  if not delivered and in_flight then
-    vim.list_extend(unsent, in_flight)
+  for _, id in ipairs(ids) do
+    local send = outstanding[id]
+    outstanding[id] = nil
+    vim.list_extend(unsent, send.heartbeats, send.delivered + 1)
   end
   vim.list_extend(unsent, heartbeat.flush())
   offline.save(unsent)

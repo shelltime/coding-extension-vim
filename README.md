@@ -149,7 +149,7 @@ require("shelltime").setup({
 | `:ShellTimeStatus` | Show daemon connection status (version, uptime, platform) and pending heartbeats |
 | `:ShellTimeFlush` | Manually flush pending heartbeats to daemon |
 | `:ShellTimeEnable` | Enable tracking for this session (needs `setup()`; doesn't override `codeTracking.enabled: false`) |
-| `:ShellTimeDisable` | Flush pending heartbeats and disable tracking for this session |
+| `:ShellTimeDisable` | Send pending heartbeats (what the daemon doesn't take goes to its resend file, as on exit) and disable tracking for this session |
 
 ## How It Works
 
@@ -170,7 +170,7 @@ Heartbeats are:
 - **Deduplicated**: Buffer and cursor events at the same file and cursor position as the last event are skipped (edits always count)
 - **Debounced**: Max 1 heartbeat per file per 30 seconds. Saves count once per window too, since auto-save plugins write after every change: a save inside the window marks the file's next heartbeat as a write
 - **Batched**: Sent to the daemon over its Unix socket every 2 minutes, at most 500 per message
-- **Flushed on exit**: Pending heartbeats are sent on `VimLeavePre` (Neovim waits up to 1.5s). What the daemon doesn't take goes to `~/.shelltime/coding-heartbeat.data.log`, which the daemon resends once it runs
+- **Flushed on exit**: Pending heartbeats are sent on `VimLeavePre`, and Neovim waits up to 1.5s for them and for any send already in progress. What the daemon doesn't take, or doesn't acknowledge in time, goes to `~/.shelltime/coding-heartbeat.data.log`, which the daemon resends once it runs
 - **Queued**: Kept in memory and retried on the next flush if the daemon is unavailable or has code tracking turned off (up to 5,000; oldest dropped first)
 
 ### Data Tracked
