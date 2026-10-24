@@ -1,5 +1,6 @@
 -- Minimal TOML parser for shelltime config
--- Supports: key = value pairs and [table] headers, with strings, numbers and booleans
+-- Supports: key = value pairs, [table] and [[array of tables]] headers, with
+-- strings, numbers and booleans
 
 local M = {}
 
@@ -43,8 +44,21 @@ function M.parse(content)
   for line in content:gmatch('[^\r\n]+') do
     local trimmed = trim(line)
     if trimmed ~= '' and not trimmed:match('^#') then
+      local array_name = trimmed:match('^%[%[%s*([%w_%.%-]+)%s*%]%]')
       local table_name = trimmed:match('^%[%s*([%w_%.%-]+)%s*%]')
-      if table_name then
+      if array_name then
+        -- [[a.b]] starts a new table in the array a.b: the keys after it go
+        -- there, never to the table before it (old CLIs wrote [[ENDPOINTS]])
+        local parent = result
+        for part in array_name:gmatch('([^%.]+)%.') do
+          parent[part] = parent[part] or {}
+          parent = parent[part]
+        end
+        local name = array_name:match('([^%.]+)$')
+        parent[name] = parent[name] or {}
+        current = {}
+        table.insert(parent[name], current)
+      elseif table_name then
         -- [a.b] nests a table in a
         current = result
         for part in table_name:gmatch('[^%.]+') do
