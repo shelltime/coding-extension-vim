@@ -67,6 +67,71 @@ describe('shelltime.utils.git', function()
       end
     end)
 
+    describe('reftable repositories', function()
+      -- git's reftable backend keeps the real HEAD in reftable/ and writes a stub to HEAD
+      local spy = require('luassert.spy')
+      local stub = require('luassert.stub')
+      local dir
+      local systemlist
+
+      local function git_in(repo, ...)
+        vim.fn.system(vim.list_extend({ 'git', '-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t' }, { ... }))
+        assert.equals(0, vim.v.shell_error)
+      end
+
+      before_each(function()
+        dir = vim.fn.tempname()
+        vim.fn.mkdir(dir .. '/src', 'p')
+      end)
+
+      after_each(function()
+        if systemlist then
+          systemlist:revert()
+          systemlist = nil
+        end
+        vim.fn.delete(dir, 'rf')
+      end)
+
+      it('should ask git, once per repository, when the git directory has reftable/', function()
+        git_in(dir, 'init', '-q')
+        git_in(dir, 'commit', '-q', '--allow-empty', '-m', 'init')
+        git_in(dir, 'checkout', '-q', '-b', 'feature/reftable')
+        vim.fn.mkdir(dir .. '/.git/reftable', 'p')
+        systemlist = spy.on(vim.fn, 'systemlist')
+
+        assert.equals('feature/reftable', git.get_branch(dir .. '/a.lua'))
+        assert.equals('feature/reftable', git.get_branch(dir .. '/src/b.lua'))
+        assert.spy(systemlist).was_called(1)
+      end)
+
+      it('should report no branch when git fails for a HEAD stub', function()
+        vim.fn.mkdir(dir .. '/.git/reftable', 'p')
+        vim.fn.writefile({ 'ref: refs/heads/.invalid' }, dir .. '/.git/HEAD')
+
+        assert.equals('', git.get_branch(dir .. '/a.lua'))
+      end)
+
+      it('should report no branch when git is not installed', function()
+        vim.fn.mkdir(dir .. '/.git', 'p')
+        vim.fn.writefile({ 'ref: refs/heads/.invalid' }, dir .. '/.git/HEAD')
+        systemlist = stub(vim.fn, 'systemlist')
+        systemlist.invokes(function()
+          error("Vim:E475: Invalid value for argument cmd: 'git' is not executable")
+        end)
+
+        assert.equals('', git.get_branch(dir .. '/a.lua'))
+      end)
+
+      it('should not run git for a repository whose HEAD names the branch', function()
+        vim.fn.mkdir(dir .. '/.git', 'p')
+        vim.fn.writefile({ 'ref: refs/heads/main' }, dir .. '/.git/HEAD')
+        systemlist = spy.on(vim.fn, 'systemlist')
+
+        assert.equals('main', git.get_branch(dir .. '/a.lua'))
+        assert.spy(systemlist).was_not_called()
+      end)
+    end)
+
     it('should not contain newlines', function()
       local project_dir = helpers.get_project_dir()
       local test_file = project_dir .. '/lua/shelltime/init.lua'

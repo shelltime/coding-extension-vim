@@ -2,6 +2,13 @@
 
 local M = {}
 
+-- How long a branch git printed is used before git is asked again
+local BRANCH_CACHE_MS = 30000
+
+-- Branches git printed, per git directory, for repositories whose HEAD file
+-- doesn't name the branch
+local branch_cache = {}
+
 --- Find the git directory for a file's directory: the nearest .git directory,
 --- or where a worktree's or submodule's .git file points
 ---@param dir string Directory to start from
@@ -32,9 +39,34 @@ local function find_git_dir(dir)
   return nil
 end
 
+--- The branch git itself reports for a directory, at most once per git
+--- directory every BRANCH_CACHE_MS, or '' when git fails
+---@param dir string Directory in the repository
+---@param git_dir string Its git directory
+---@return string Branch name or empty string
+local function branch_from_git(dir, git_dir)
+  local now = (vim.uv or vim.loop).now()
+  local cached = branch_cache[git_dir]
+  if cached and now - cached.at < BRANCH_CACHE_MS then
+    return cached.branch
+  end
+
+  local branch = ''
+  -- It raises an error when git isn't installed, and git fails outside a repository
+  local ok, lines = pcall(vim.fn.systemlist, { 'git', '-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD' })
+  if ok and vim.v.shell_error == 0 and #lines > 0 then
+    -- The output includes git's warnings, which come before the branch
+    branch = vim.trim(lines[#lines])
+  end
+  branch_cache[git_dir] = { branch = branch, at = now }
+  return branch
+end
+
 --- Get current git branch for a file, as `git rev-parse --abbrev-ref HEAD`
 --- prints it ('HEAD' when detached). It reads HEAD instead of running git,
---- which blocked the editor on every heartbeat.
+--- which blocked the editor on every heartbeat. A reftable repository keeps
+--- its real HEAD in reftable/ and leaves a `ref: refs/heads/.invalid` stub,
+--- so only there git is asked, and its answer cached.
 ---@param file_path string File path
 ---@return string Branch name or empty string
 function M.get_branch(file_path)
@@ -55,7 +87,11 @@ function M.get_branch(file_path)
     return ''
   end
 
-  return lines[1]:match('^ref:%s*refs/heads/(.-)%s*$') or 'HEAD'
+  local branch = lines[1]:match('^ref:%s*refs/heads/(.-)%s*$')
+  if branch == '.invalid' or vim.fn.isdirectory(git_dir .. '/reftable') == 1 then
+    return branch_from_git(dir, git_dir)
+  end
+  return branch or 'HEAD'
 end
 
 return M

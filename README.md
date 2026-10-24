@@ -183,7 +183,7 @@ Each heartbeat includes:
 - **System info**: Hostname, OS, OS version
 - **Activity**: Timestamp, whether it was a save event, category (`coding` or `debugging`)
 
-The project root is the git repository the file is in (as in VS Code and JetBrains, so a monorepo's packages count toward one project). Outside a repository it is the nearest parent directory containing `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `Makefile`, `CMakeLists.txt`, `.project` or `.root`, otherwise the file's directory. The project name is its last two path segments, e.g. `code/my-app`. The branch is read from the repository's `HEAD`, without running `git`.
+The project root is the git repository the file is in (as in VS Code and JetBrains, so a monorepo's packages count toward one project). Outside a repository it is the nearest parent directory containing `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `Makefile`, `CMakeLists.txt`, `.project` or `.root`, otherwise the file's directory. The project name is its last two path segments, e.g. `code/my-app`. The branch is read from the repository's `HEAD`, without running `git`, except in a reftable repository, whose `HEAD` is a stub: there it comes from `git rev-parse --abbrev-ref HEAD`, asked at most every 30 seconds per repository.
 
 ### CLI Update Check
 
