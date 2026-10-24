@@ -109,7 +109,7 @@ function M.send(message, callback)
                   callback(nil, 'Failed to parse response')
                 end
               else
-                callback(nil, nil) -- Empty response is ok for heartbeats
+                callback(nil, nil) -- Closed without a reply
               end
             end)
           end
@@ -134,6 +134,19 @@ function M.send_heartbeats(heartbeats, callback)
   M.send(message, function(response, err)
     if err then
       callback('failed', err)
+    elseif response == nil then
+      -- Daemons since 0.1.48 acknowledge every heartbeat message and close
+      -- without a reply when they could not take it (shutting down, or dying
+      -- before they answer), so the heartbeats must be kept. 0.1.42-0.1.47
+      -- handled heartbeats but never replied: an empty reply counts as
+      -- delivered only when the daemon still answers a status request.
+      M.get_status(function(status, status_err)
+        if status_err == nil and status ~= nil then
+          callback('ok', nil)
+        else
+          callback('failed', 'no acknowledgment from the daemon')
+        end
+      end)
     elseif type(response) == 'table' and response.status == 'disabled' then
       callback('disabled', 'code tracking is disabled in the daemon')
     else

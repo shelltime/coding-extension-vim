@@ -81,28 +81,28 @@ describe('shelltime.socket', function()
         { heartbeatId = 'test-1', entity = '/test/file.lua' },
       }
 
-      local called = false
-      socket.send_heartbeats(heartbeats, function(success, err)
-        called = true
-        assert.is_boolean(success)
+      local result = nil
+      socket.send_heartbeats(heartbeats, function(status, err)
+        result = status
       end)
 
-      vim.wait(6000, function() return called end, 100)
-      assert.is_true(called)
+      vim.wait(6000, function() return result ~= nil end, 100)
+      assert.is_string(result)
     end)
 
-    it('should return success false on connection error', function()
+    it('should report failed on connection error', function()
       local heartbeats = {{ heartbeatId = 'test' }}
 
-      local called = false
-      socket.send_heartbeats(heartbeats, function(success, err)
-        called = true
-        assert.is_false(success)
-        assert.is_string(err)
+      local result = nil
+      local error_msg = nil
+      socket.send_heartbeats(heartbeats, function(status, err)
+        result = status
+        error_msg = err
       end)
 
-      vim.wait(6000, function() return called end, 100)
-      assert.is_true(called)
+      vim.wait(6000, function() return result ~= nil end, 100)
+      assert.equals('failed', result)
+      assert.is_string(error_msg)
     end)
 
     it('should handle empty heartbeats array', function()
@@ -129,6 +129,83 @@ describe('shelltime.socket', function()
 
       vim.wait(6000, function() return called end, 100)
       assert.is_true(called)
+    end)
+  end)
+
+  describe('send_heartbeats acknowledgment', function()
+    local uv = vim.loop or vim.uv
+    local server
+    local socket_path
+
+    -- A daemon on a scratch socket: replies[type] is what it writes back to a
+    -- message of that type before closing (nil closes without a reply)
+    local function serve(replies)
+      socket_path = vim.fn.tempname() .. '.sock'
+      server = uv.new_pipe(false)
+      server:bind(socket_path)
+      server:listen(16, function()
+        local client = uv.new_pipe(false)
+        server:accept(client)
+        local data = ''
+        client:read_start(function(_, chunk)
+          if chunk then
+            data = data .. chunk
+            return
+          end
+          local kind = data:find('"type":"status"', 1, true) and 'status' or 'heartbeat'
+          local function close()
+            client:close()
+          end
+          if replies[kind] then
+            client:write(replies[kind], close)
+          else
+            close()
+          end
+        end)
+      end)
+      config._set_for_testing({ socket_path = socket_path })
+    end
+
+    local function send()
+      local result = {}
+      socket.send_heartbeats({ { heartbeatId = 'test' } }, function(status, err)
+        result.status = status
+        result.err = err
+      end)
+      vim.wait(2000, function() return result.status ~= nil end, 10)
+      return result
+    end
+
+    after_each(function()
+      if server then
+        server:close()
+        server = nil
+      end
+      os.remove(socket_path)
+    end)
+
+    it('should count an acknowledged batch as delivered', function()
+      serve({ heartbeat = '{"status":"ok"}' })
+      assert.equals('ok', send().status)
+    end)
+
+    it('should report a daemon with code tracking off', function()
+      serve({ heartbeat = '{"status":"disabled"}' })
+      assert.equals('disabled', send().status)
+    end)
+
+    it('should count an empty reply as delivered when the daemon answers a status request', function()
+      -- 0.1.42-0.1.47 daemons took heartbeats without replying
+      serve({ status = '{"version":"0.1.45"}' })
+      assert.equals('ok', send().status)
+    end)
+
+    it('should keep a batch the daemon closed without acknowledging', function()
+      -- A daemon that is going away no longer answers a status request either
+      serve({})
+      local result = send()
+      assert.equals('failed', result.status)
+      assert.is_string(result.err)
     end)
   end)
 
