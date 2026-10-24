@@ -44,6 +44,9 @@ end
 ---@param dir string Directory in the repository
 ---@param git_dir string Its git directory
 ---@return string Branch name or empty string
+-- How long the reftable fallback waits for git
+local GIT_TIMEOUT_MS = 1000
+
 local function branch_from_git(dir, git_dir)
   local now = (vim.uv or vim.loop).now()
   local cached = branch_cache[git_dir]
@@ -52,11 +55,13 @@ local function branch_from_git(dir, git_dir)
   end
 
   local branch = ''
-  -- It raises an error when git isn't installed, and git fails outside a repository
-  local ok, lines = pcall(vim.fn.systemlist, { 'git', '-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD' })
-  if ok and vim.v.shell_error == 0 and #lines > 0 then
-    -- The output includes git's warnings, which come before the branch
-    branch = vim.trim(lines[#lines])
+  -- vim.system raises an error when git isn't installed, and git fails outside a
+  -- repository. Only stdout holds the branch; warnings go to stderr.
+  local ok, result = pcall(function()
+    return vim.system({ 'git', '-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD' }, { text = true }):wait(GIT_TIMEOUT_MS)
+  end)
+  if ok and result.code == 0 then
+    branch = vim.trim(result.stdout or '')
   end
   branch_cache[git_dir] = { branch = branch, at = now }
   return branch

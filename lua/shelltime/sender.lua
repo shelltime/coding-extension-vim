@@ -105,6 +105,11 @@ local function send_heartbeats(callback)
     socket.send_heartbeats(chunk, function(status, err)
       if status == 'ok' then
         send.delivered = sent + #chunk
+        if outstanding[id] == nil then
+          -- exit_flush stopped waiting and saved the rest to the offline file
+          finish(sent + #chunk, status, err)
+          return
+        end
         send_from(sent + #chunk)
       else
         finish(sent, status, err)

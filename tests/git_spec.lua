@@ -72,7 +72,7 @@ describe('shelltime.utils.git', function()
       local spy = require('luassert.spy')
       local stub = require('luassert.stub')
       local dir
-      local systemlist
+      local system
 
       local function git_in(repo, ...)
         vim.fn.system(vim.list_extend({ 'git', '-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t' }, { ... }))
@@ -85,9 +85,9 @@ describe('shelltime.utils.git', function()
       end)
 
       after_each(function()
-        if systemlist then
-          systemlist:revert()
-          systemlist = nil
+        if system then
+          system:revert()
+          system = nil
         end
         vim.fn.delete(dir, 'rf')
       end)
@@ -97,11 +97,11 @@ describe('shelltime.utils.git', function()
         git_in(dir, 'commit', '-q', '--allow-empty', '-m', 'init')
         git_in(dir, 'checkout', '-q', '-b', 'feature/reftable')
         vim.fn.mkdir(dir .. '/.git/reftable', 'p')
-        systemlist = spy.on(vim.fn, 'systemlist')
+        system = spy.on(vim, 'system')
 
         assert.equals('feature/reftable', git.get_branch(dir .. '/a.lua'))
         assert.equals('feature/reftable', git.get_branch(dir .. '/src/b.lua'))
-        assert.spy(systemlist).was_called(1)
+        assert.spy(system).was_called(1)
       end)
 
       it('should report no branch when git fails for a HEAD stub', function()
@@ -114,9 +114,9 @@ describe('shelltime.utils.git', function()
       it('should report no branch when git is not installed', function()
         vim.fn.mkdir(dir .. '/.git', 'p')
         vim.fn.writefile({ 'ref: refs/heads/.invalid' }, dir .. '/.git/HEAD')
-        systemlist = stub(vim.fn, 'systemlist')
-        systemlist.invokes(function()
-          error("Vim:E475: Invalid value for argument cmd: 'git' is not executable")
+        system = stub(vim, 'system')
+        system.invokes(function()
+          error('ENOENT: no such file or directory (cmd): git')
         end)
 
         assert.equals('', git.get_branch(dir .. '/a.lua'))
@@ -125,10 +125,10 @@ describe('shelltime.utils.git', function()
       it('should not run git for a repository whose HEAD names the branch', function()
         vim.fn.mkdir(dir .. '/.git', 'p')
         vim.fn.writefile({ 'ref: refs/heads/main' }, dir .. '/.git/HEAD')
-        systemlist = spy.on(vim.fn, 'systemlist')
+        system = spy.on(vim, 'system')
 
         assert.equals('main', git.get_branch(dir .. '/a.lua'))
-        assert.spy(systemlist).was_not_called()
+        assert.spy(system).was_not_called()
       end)
     end)
 

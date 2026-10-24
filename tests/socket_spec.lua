@@ -138,7 +138,9 @@ describe('shelltime.socket', function()
     local socket_path
 
     -- A daemon on a scratch socket: replies[type] is what it writes back to a
-    -- message of that type before closing (nil closes without a reply)
+    -- message of that type before closing (nil closes without a reply).
+    -- replies.stop stops listening once a heartbeat arrives, as a daemon that
+    -- is shutting down does before it drops the message.
     local function serve(replies)
       socket_path = vim.fn.tempname() .. '.sock'
       server = uv.new_pipe(false)
@@ -155,6 +157,9 @@ describe('shelltime.socket', function()
           local kind = data:find('"type":"status"', 1, true) and 'status' or 'heartbeat'
           local function close()
             client:close()
+          end
+          if kind == 'heartbeat' and replies.stop and not server:is_closing() then
+            server:close()
           end
           if replies[kind] then
             client:write(replies[kind], close)
@@ -178,7 +183,9 @@ describe('shelltime.socket', function()
 
     after_each(function()
       if server then
-        server:close()
+        if not server:is_closing() then
+          server:close()
+        end
         server = nil
       end
       os.remove(socket_path)
@@ -194,15 +201,15 @@ describe('shelltime.socket', function()
       assert.equals('disabled', send().status)
     end)
 
-    it('should count an empty reply as delivered when the daemon answers a status request', function()
-      -- 0.1.42-0.1.47 daemons took heartbeats without replying
-      serve({ status = '{"version":"0.1.45"}' })
+    it('should count an empty reply as delivered when the daemon still takes connections', function()
+      -- 0.1.42-0.1.47 daemons took heartbeats without replying; 0.1.42 answers no status either
+      serve({})
       assert.equals('ok', send().status)
     end)
 
     it('should keep a batch the daemon closed without acknowledging', function()
-      -- A daemon that is going away no longer answers a status request either
-      serve({})
+      -- A daemon that is going away stops listening before it drops the message
+      serve({ stop = true })
       local result = send()
       assert.equals('failed', result.status)
       assert.is_string(result.err)

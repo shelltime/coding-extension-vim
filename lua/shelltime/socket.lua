@@ -138,10 +138,11 @@ function M.send_heartbeats(heartbeats, callback)
       -- Daemons since 0.1.48 acknowledge every heartbeat message and close
       -- without a reply when they could not take it (shutting down, or dying
       -- before they answer), so the heartbeats must be kept. 0.1.42-0.1.47
-      -- handled heartbeats but never replied: an empty reply counts as
-      -- delivered only when the daemon still answers a status request.
-      M.get_status(function(status, status_err)
-        if status_err == nil and status ~= nil then
+      -- handled heartbeats but never replied (0.1.42 answers no status
+      -- either): an empty reply counts as delivered only when the daemon
+      -- still takes connections, which a stopping one no longer does.
+      M.can_connect(function(connected)
+        if connected then
           callback('ok', nil)
         else
           callback('failed', 'no acknowledgment from the daemon')
@@ -152,6 +153,43 @@ function M.send_heartbeats(heartbeats, callback)
     else
       callback('ok', nil)
     end
+  end)
+end
+
+--- Check that the daemon takes connections, without sending it anything
+---@param callback function Callback(connected)
+function M.can_connect(callback)
+  local uv = vim.loop or vim.uv
+  local pipe = uv.new_pipe(false)
+  if not pipe then
+    callback(false)
+    return
+  end
+
+  local done = false
+  local timer = uv.new_timer()
+  local function finish(connected)
+    if done then
+      return
+    end
+    done = true
+    timer:stop()
+    if not timer:is_closing() then
+      timer:close()
+    end
+    if not pipe:is_closing() then
+      pipe:close()
+    end
+    vim.schedule(function()
+      callback(connected)
+    end)
+  end
+
+  timer:start(SOCKET_TIMEOUT, 0, function()
+    finish(false)
+  end)
+  pipe:connect(config.get('socket_path'), function(err)
+    finish(err == nil)
   end)
 end
 
