@@ -15,6 +15,17 @@ function M.send(message, callback)
   local socket_path = config.get('socket_path')
   local pipe = uv.new_pipe(false)
 
+  -- A timeout and a late reply can both be scheduled; only the first one counts
+  local done = false
+  local user_callback = callback
+  callback = function(...)
+    if done then
+      return
+    end
+    done = true
+    user_callback(...)
+  end
+
   if not pipe then
     callback(nil, 'Failed to create pipe')
     return
@@ -110,7 +121,8 @@ end
 
 --- Send heartbeats to daemon
 ---@param heartbeats table[] Array of heartbeat data
----@param callback function Callback(success, error)
+---@param callback function Callback(status, error): status is 'ok', 'disabled' when
+--- the daemon dropped them because code tracking is off in its config, or 'failed'
 function M.send_heartbeats(heartbeats, callback)
   local message = {
     type = 'heartbeat',
@@ -121,9 +133,11 @@ function M.send_heartbeats(heartbeats, callback)
 
   M.send(message, function(response, err)
     if err then
-      callback(false, err)
+      callback('failed', err)
+    elseif type(response) == 'table' and response.status == 'disabled' then
+      callback('disabled', 'code tracking is disabled in the daemon')
     else
-      callback(true, nil)
+      callback('ok', nil)
     end
   end)
 end

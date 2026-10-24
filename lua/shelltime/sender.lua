@@ -4,6 +4,7 @@ local config = require('shelltime.config')
 local socket = require('shelltime.socket')
 local heartbeat = require('shelltime.heartbeat')
 local version = require('shelltime.version')
+local offline = require('shelltime.offline')
 
 local M = {}
 
@@ -16,10 +17,33 @@ local augroup = nil
 -- How long Neovim may wait on exit for pending heartbeats to be sent
 local EXIT_FLUSH_TIMEOUT = 1500
 
+-- Heartbeats per socket message, so a backlog never goes out as one huge request
+local MAX_PER_MESSAGE = 500
+
 -- Connection status
 local is_connected = false
 
---- Send pending heartbeats to daemon
+-- Heartbeats of the send in progress, until it is known what became of them
+local in_flight = nil
+
+-- Whether the daemon last dropped heartbeats because code tracking is off
+local tracking_disabled = false
+local disabled_notice_shown = false
+
+local function notify_tracking_disabled()
+  if disabled_notice_shown then
+    return
+  end
+  disabled_notice_shown = true
+  vim.notify(
+    '[shelltime] The daemon is not recording editor activity because code tracking is off. '
+      .. 'Set codeTracking.enabled to true in ~/.shelltime/config.yaml (an older daemon also needs '
+      .. '`shelltime daemon reinstall`). Your activity is kept until then.',
+    vim.log.levels.WARN
+  )
+end
+
+--- Send pending heartbeats to daemon, at most MAX_PER_MESSAGE per message
 ---@param callback function|nil Optional callback(success, error)
 local function send_heartbeats(callback)
   local heartbeats = heartbeat.flush()
@@ -31,16 +55,23 @@ local function send_heartbeats(callback)
     return
   end
 
-  socket.send_heartbeats(heartbeats, function(success, err)
-    is_connected = success
+  in_flight = heartbeats
 
-    if not success then
+  local function finish(sent, status, err)
+    in_flight = nil
+    is_connected = status ~= 'failed'
+    tracking_disabled = status == 'disabled'
+
+    if sent < #heartbeats then
       -- Keep them for the next flush instead of dropping them
-      heartbeat.requeue(heartbeats)
+      heartbeat.requeue(vim.list_slice(heartbeats, sent + 1))
+    end
+    if tracking_disabled then
+      notify_tracking_disabled()
     end
 
     if config.get('debug') then
-      if success then
+      if status == 'ok' then
         vim.notify(
           string.format('[shelltime] Sent %d heartbeats', #heartbeats),
           vim.log.levels.DEBUG
@@ -54,9 +85,26 @@ local function send_heartbeats(callback)
     end
 
     if callback then
-      callback(success, err)
+      callback(status == 'ok', err)
     end
-  end)
+  end
+
+  local function send_from(sent)
+    if sent >= #heartbeats then
+      finish(sent, 'ok', nil)
+      return
+    end
+    local chunk = vim.list_slice(heartbeats, sent + 1, sent + MAX_PER_MESSAGE)
+    socket.send_heartbeats(chunk, function(status, err)
+      if status == 'ok' then
+        send_from(sent + #chunk)
+      else
+        finish(sent, status, err)
+      end
+    end)
+  end
+
+  send_from(0)
 end
 
 --- Start periodic flush timer
@@ -81,7 +129,7 @@ function M.start()
   vim.api.nvim_create_autocmd('VimLeavePre', {
     group = augroup,
     callback = function()
-      M.flush_sync(EXIT_FLUSH_TIMEOUT)
+      M.exit_flush(EXIT_FLUSH_TIMEOUT)
     end,
   })
 
@@ -133,10 +181,29 @@ function M.flush_sync(timeout)
   end, 10)
 end
 
+--- Send what is pending before Neovim exits, and leave what doesn't go out
+--- (no daemon, or no answer in time) for the daemon to send later
+---@param timeout number Maximum wait in milliseconds
+function M.exit_flush(timeout)
+  local delivered = M.flush_sync(timeout)
+  local unsent = {}
+  if not delivered and in_flight then
+    vim.list_extend(unsent, in_flight)
+  end
+  vim.list_extend(unsent, heartbeat.flush())
+  offline.save(unsent)
+end
+
 --- Get connection status
 ---@return boolean
 function M.is_connected()
   return is_connected
+end
+
+--- Whether the daemon dropped the last heartbeats because code tracking is off
+---@return boolean
+function M.is_tracking_disabled()
+  return tracking_disabled
 end
 
 --- Check and update connection status

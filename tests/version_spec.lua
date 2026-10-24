@@ -533,42 +533,15 @@ describe('shelltime.version', function()
       assert.equals(vim.log.levels.WARN, level)
     end)
 
-    it('should copy to clipboard when available', function()
+    it('should leave the clipboard alone', function()
       has_stub = create_stub(vim.fn, 'has')
       has_stub.returns(1)
       setreg_stub = create_stub(vim.fn, 'setreg')
 
       version.show_update_warning('1.0.0', '2.0.0', 'https://example.com')
 
-      assert.stub(setreg_stub).was_called()
-      local reg = setreg_stub.calls[1].refs[1]
-      local content = setreg_stub.calls[1].refs[2]
-      assert.equals('+', reg)
-      assert.matches('curl %-sSL https://example%.com/i | bash', content)
-    end)
-
-    it('should not crash when clipboard unavailable', function()
-      has_stub = create_stub(vim.fn, 'has')
-      has_stub.returns(0)
-
-      assert.has_no_errors(function()
-        version.show_update_warning('1.0.0', '2.0.0', 'https://example.com')
-      end)
-    end)
-
-    it('should notify about clipboard copy', function()
-      has_stub = create_stub(vim.fn, 'has')
-      has_stub.returns(1)
-      setreg_stub = create_stub(vim.fn, 'setreg')
-
-      version.show_update_warning('1.0.0', '2.0.0', 'https://example.com')
-
-      -- Should have two notifications: warning and clipboard info
-      assert.equals(2, #notify_stub.calls)
-      local info_message = notify_stub.calls[2].refs[1]
-      local info_level = notify_stub.calls[2].refs[2]
-      assert.matches('clipboard', info_message)
-      assert.equals(vim.log.levels.INFO, info_level)
+      assert.stub(setreg_stub).was_not_called()
+      assert.equals(1, #notify_stub.calls)
     end)
   end)
 

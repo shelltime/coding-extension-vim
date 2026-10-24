@@ -1,6 +1,7 @@
 -- Configuration loading for shelltime
 
 local yaml = require('shelltime.utils.yaml')
+local toml = require('shelltime.utils.toml')
 
 local M = {}
 
@@ -18,9 +19,20 @@ local defaults = {
 -- Default config file path
 local default_config_path = '~/.shelltime/config.yaml'
 
+-- Without a `config` option the plugin reads what the ShellTime CLI reads
+-- (cli/model/config.go): the first of these base files that exists, with the
+-- first local file merged over it
+local config_dir = '~/.shelltime'
+local base_files = { 'config.yaml', 'config.yml', 'config.toml' }
+local local_files = { 'config.local.yaml', 'config.local.yml', 'config.local.toml' }
+
+-- How often get_config() looks at the files again; it runs on every cursor move
+local RECHECK_INTERVAL_MS = 5000
+
 -- Cached config
 local cached_config = nil
-local cached_mtime = nil
+local cached_signature = nil
+local last_check = nil
 local config_path = nil
 local test_mode = false
 
@@ -41,17 +53,56 @@ end
 local function get_mtime(path)
   local stat = vim.loop.fs_stat(path)
   if stat then
-    return stat.mtime.sec
+    return stat.mtime.sec * 1e9 + stat.mtime.nsec
   end
   return nil
 end
 
---- Load configuration from YAML file
----@param path string Config file path
+--- First of the given names in the config directory that exists
+---@param names string[] File names
+---@return string|nil Expanded path
+local function first_existing(names)
+  local dir = expand_path(config_dir)
+  for _, name in ipairs(names) do
+    local path = dir .. '/' .. name
+    if vim.loop.fs_stat(path) then
+      return path
+    end
+  end
+  return nil
+end
+
+--- The files to read, base first
+---@return string[] Expanded paths
+local function config_files()
+  if config_path then
+    return { expand_path(config_path) }
+  end
+  local base = first_existing(base_files)
+  if not base then
+    return {}
+  end
+  local local_file = first_existing(local_files)
+  return local_file and { base, local_file } or { base }
+end
+
+--- Paths and modification times of the files, to tell when they change
+---@param files string[] Expanded paths
+---@return string
+local function signature_of(files)
+  local parts = {}
+  for _, path in ipairs(files) do
+    table.insert(parts, path .. ':' .. tostring(get_mtime(path)))
+  end
+  return table.concat(parts, '|')
+end
+
+--- Load configuration from a YAML or TOML file
+---@param path string Expanded config file path
 ---@return table Configuration table
 local function load_config_file(path)
-  local expanded = expand_path(path)
-  local file_config, err = yaml.load_file(expanded)
+  local parser = path:match('%.toml$') and toml or yaml
+  local file_config, err = parser.load_file(path)
 
   if err then
     if defaults.debug then
@@ -61,6 +112,24 @@ local function load_config_file(path)
   end
 
   return file_config or {}
+end
+
+--- Merge a local override file over the base file, as the CLI's mergeConfig:
+--- set values replace the base's, empty strings don't, and codeTracking merges
+--- field by field (a local file that only sets its token keeps tracking on)
+---@param base table Base file config
+---@param override table Local file config
+---@return table Merged file config
+local function merge_file_configs(base, override)
+  local merged = vim.tbl_extend('force', {}, base)
+  for key, value in pairs(override) do
+    if key == 'codeTracking' and type(value) == 'table' and type(merged[key]) == 'table' then
+      merged[key] = merge_file_configs(merged[key], value)
+    elseif value ~= '' then
+      merged[key] = value
+    end
+  end
+  return merged
 end
 
 --- Merge file config with defaults
@@ -92,13 +161,15 @@ local function merge_config(file_config)
     config.debounce_interval = file_config.debounceInterval
   end
 
-  -- API and web endpoints for version check
-  if file_config.apiEndpoint then
-    config.api_endpoint = file_config.apiEndpoint
+  -- API and web endpoints for version check (TOML spells them APIEndpoint and WebEndpoint)
+  local api_endpoint = file_config.apiEndpoint or file_config.APIEndpoint
+  if api_endpoint then
+    config.api_endpoint = api_endpoint
   end
 
-  if file_config.webEndpoint then
-    config.web_endpoint = file_config.webEndpoint
+  local web_endpoint = file_config.webEndpoint or file_config.WebEndpoint
+  if web_endpoint then
+    config.web_endpoint = web_endpoint
   end
 
   return config
@@ -108,11 +179,12 @@ end
 ---@param opts table|nil Setup options
 function M.setup(opts)
   opts = opts or {}
-  config_path = opts.config or default_config_path
+  config_path = opts.config
 
   -- Force reload
   cached_config = nil
-  cached_mtime = nil
+  cached_signature = nil
+  last_check = nil
   test_mode = false
 end
 
@@ -124,18 +196,26 @@ function M.get_config()
     return cached_config
   end
 
-  local path = expand_path(config_path or default_config_path)
-  local mtime = get_mtime(path)
+  -- Look at the files at most every few seconds
+  local now = vim.loop.hrtime() / 1e6
+  if cached_config and last_check and now - last_check < RECHECK_INTERVAL_MS then
+    return cached_config
+  end
+  last_check = now
 
-  -- Use cache if valid
-  if cached_config and mtime and mtime == cached_mtime then
+  local files = config_files()
+  local signature = signature_of(files)
+  if cached_config and signature == cached_signature then
     return cached_config
   end
 
   -- Load and cache
-  local file_config = load_config_file(config_path or default_config_path)
+  local file_config = {}
+  for _, path in ipairs(files) do
+    file_config = merge_file_configs(file_config, load_config_file(path))
+  end
   cached_config = merge_config(file_config)
-  cached_mtime = mtime
+  cached_signature = signature
 
   return cached_config
 end
@@ -154,10 +234,19 @@ function M.is_enabled()
   return M.get('enabled') == true
 end
 
---- Get config file path
+--- Get config file path: the one passed to setup(), else the base file the
+--- CLI's discovery picks (config.yaml when there is none yet)
 ---@return string Config path
 function M.get_config_path()
-  return config_path or default_config_path
+  if config_path then
+    return config_path
+  end
+  for _, name in ipairs(base_files) do
+    if vim.loop.fs_stat(expand_path(config_dir .. '/' .. name)) then
+      return config_dir .. '/' .. name
+    end
+  end
+  return default_config_path
 end
 
 --- Set config values directly (for testing only)

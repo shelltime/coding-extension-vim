@@ -174,7 +174,8 @@ describe('shelltime.utils.system', function()
       local root = system.get_project_root(test_file)
 
       assert.is_string(root)
-      assert.is_true(vim.fn.isdirectory(root .. '/.git') == 1)
+      -- A directory in a clone, a file in a worktree
+      assert.is_true(vim.fn.isdirectory(root .. '/.git') == 1 or vim.fn.filereadable(root .. '/.git') == 1)
     end)
 
     it('should return project root for nested file', function()

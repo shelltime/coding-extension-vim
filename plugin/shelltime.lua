@@ -27,8 +27,9 @@ end, {
 })
 
 vim.api.nvim_create_user_command('ShellTimeEnable', function()
-  require('shelltime').enable()
-  vim.notify('[shelltime] Tracking enabled', vim.log.levels.INFO)
+  if require('shelltime').enable() then
+    vim.notify('[shelltime] Tracking enabled', vim.log.levels.INFO)
+  end
 end, {
   desc = 'Enable ShellTime tracking',
 })

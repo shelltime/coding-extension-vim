@@ -214,12 +214,20 @@ describe('shelltime.heartbeat', function()
   describe('autocmd events (integration)', function()
     local buffers = {}
 
+    -- Let scheduled callbacks (the deferred BufEnter) run
+    local function settle()
+      vim.wait(20, function()
+        return false
+      end)
+    end
+
     -- Open a named file buffer in the current window, dropping its BufEnter heartbeat
     local function open_buffer(path)
       local bufnr = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_name(bufnr, path)
       table.insert(buffers, bufnr)
       vim.api.nvim_set_current_buf(bufnr)
+      settle()
       heartbeat.flush()
       return bufnr
     end
@@ -255,11 +263,72 @@ describe('shelltime.heartbeat', function()
 
     it('should count edits that leave the cursor in place', function()
       local bufnr = open_buffer('/tmp/shelltime-test/edit.lua')
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'edited' })
 
       vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
       vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
 
       assert.equals(2, heartbeat.get_pending_count())
+    end)
+
+    it('should count only the buffer a buffer loop ends in', function()
+      -- :bufdo enters each buffer in one go; the user only sees the last
+      local paths = { '/tmp/shelltime-test/loop1.lua', '/tmp/shelltime-test/loop2.lua', '/tmp/shelltime-test/loop3.lua' }
+      for _, path in ipairs(paths) do
+        local bufnr = vim.api.nvim_create_buf(true, false)
+        vim.api.nvim_buf_set_name(bufnr, path)
+        table.insert(buffers, bufnr)
+        vim.api.nvim_set_current_buf(bufnr)
+      end
+      settle()
+
+      local pending = heartbeat.flush()
+      assert.equals(1, #pending)
+      assert.equals(paths[3], pending[1].entity)
+    end)
+
+    it('should count saves once per debounce window and carry the write', function()
+      config._set_for_testing({ debounce_interval = 60000 })
+      local bufnr = open_buffer('/tmp/shelltime-test/autosave.lua')
+      heartbeat.clear_cache()
+
+      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = bufnr })
+
+      local pending = heartbeat.flush()
+      assert.equals(1, #pending)
+      assert.is_true(pending[1].isWrite)
+    end)
+
+    it('should skip a text change that leaves the buffer unmodified', function()
+      -- A reload from disk after a git checkout, a formatter or an AI agent
+      local bufnr = open_buffer('/tmp/shelltime-test/reloaded.lua')
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'from disk' })
+      vim.bo[bufnr].modified = false
+
+      vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
+
+      assert.equals(0, heartbeat.get_pending_count())
+    end)
+
+    it('should attribute a write to the buffer written, not the current one', function()
+      -- :wa writes other buffers while another one is current
+      local other = open_buffer('/tmp/shelltime-test/other.lua')
+      vim.api.nvim_buf_set_lines(other, 0, -1, false, { 'a', 'b', 'c' })
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      local current = open_buffer('/tmp/shelltime-test/current.lua')
+
+      vim.api.nvim_exec_autocmds('BufWritePost', { buffer = other })
+
+      local pending = heartbeat.flush()
+      assert.equals(1, #pending)
+      assert.equals('/tmp/shelltime-test/other.lua', pending[1].entity)
+      assert.is_true(pending[1].isWrite)
+      -- Where the cursor was left in that buffer, not the current window's
+      assert.equals(3, pending[1].lineNumber)
+      assert.equals(3, pending[1].lines)
+      assert.equals(current, vim.api.nvim_get_current_buf())
     end)
 
     it('should skip repeated cursor events at the same position', function()
