@@ -32,10 +32,11 @@ local function stop_tracking()
     return
   end
 
-  -- Flush remaining heartbeats before stopping
-  sender.flush()
-  sender.stop()
+  -- Stopping the sender removes its exit flush, so send what is pending now
+  -- and leave what the daemon doesn't take for it to send later
   heartbeat.stop()
+  sender.exit_flush()
+  sender.stop()
   enabled = false
 
   if config.get('debug') then
