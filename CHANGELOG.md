@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.6](https://github.com/shelltime/coding-extension-vim/compare/v0.0.5...v0.0.6) (2026-11-03)
+
+
+### Bug Fixes
+
+* **ci:** load the inline comment tool up front so Claude reviews post their findings ([#21](https://github.com/shelltime/coding-extension-vim/issues/21)) ([ab61cd2](https://github.com/shelltime/coding-extension-vim/commit/ab61cd2000188e448162daf1290355be6bff9eb4))
+
 ## [0.0.5](https://github.com/shelltime/coding-extension-vim/compare/v0.0.4...v0.0.5) (2026-10-24)
 
 
